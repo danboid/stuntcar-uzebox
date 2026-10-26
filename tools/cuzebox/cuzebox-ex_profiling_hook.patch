@@ -1,0 +1,41 @@
+diff --git a/cu_avr.c b/cu_avr.c
+index bf33a13..9698011 100644
+--- a/cu_avr.c
++++ b/cu_avr.c
+@@ -728,8 +728,18 @@ static void cu_avr_hwexec(void)
+ /*
+ ** Enters requested interrupt (event_it_enter must be true)
+ */
++auint prof_irq_vect = 0xFFFFU;   /* PROFILING HOOK: vector of an IT entered during the last exec */
++auint prof_irq_cycle;            /* PROFILING HOOK: cycle when that IT entry started */
++void (*prof_hook)(auint pc, auint c0, auint c1) = 0;
++#define PROF_EXEC() do { if (prof_hook){ auint p0_ = cpu_state.pc, c0_ = cpu_state.cycle; \
++   prof_irq_vect = 0xFFFFU; cu_avr_exec(); prof_hook(p0_, c0_, cpu_state.cycle); } \
++   else { cu_avr_exec(); } } while (0)
++
+ static void cu_avr_interrupt(void)
+ {
++ prof_irq_vect  = event_it_vect;
++ prof_irq_cycle = cpu_state.cycle;
++
+  auint tmp;
+ 
+  event_it_enter = FALSE; /* Requested IT entry performed */
+@@ -1678,7 +1688,7 @@ auint cu_avr_run(void)
+    /* AVR-GCC uses RCALL .+0 to reserve two stack bytes, without entering
+    ** another function. Its matching POPs must not strand source Step Over. */
+    if (source_op == 0x41U && ((cpu_code[profile_pc] >> 16) & 0xFFFFU) == 0U){ source_op = 0U; }
+-   cu_avr_exec();       /* Note: This inlines as only this single call exists */
++   PROF_EXEC();         /* (profiling hook when set) */
+    if (cu_debug_source_step_active && cu_debug_source_step_tick(cpu_state.pc & 0x7FFFU, source_op)){
+     ret |= CU_BREAK;
+    }
+@@ -1708,7 +1718,7 @@ auint cu_avr_run(void)
+ #endif
+   }
+ #else
+-  cu_avr_exec();       /* Note: This inlines as only this single call exists */
++  PROF_EXEC();         /* (profiling hook when set) */
+ #endif
+ #ifdef ENABLE_DEBUGGER
+   if (debug_event_break){

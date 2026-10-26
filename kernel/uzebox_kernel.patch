@@ -1,0 +1,23 @@
+diff --git a/kernel/defines.h b/kernel/defines.h
+index cd6cf9f..a0edc8c 100644
+--- a/kernel/defines.h
++++ b/kernel/defines.h
+@@ -530,7 +530,9 @@
+ 
+ 	#define VIDEO_PORT _SFR_IO_ADDR(DATA_PORT)
+ 
++	#ifndef MIX_BANK_SIZE   /* overridable: games that fill the buffer themselves (ENABLE_MIXER=0) */
+ 	#define MIX_BANK_SIZE (SYNC_HSYNC_PULSES + ((SYNC_PRE_EQ_PULSES+SYNC_EQ_PULSES+SYNC_POST_EQ_PULSES)/2))
++	#endif
+ 	#define MIX_BUF_SIZE MIX_BANK_SIZE*2
+ 	//#define MIDI_RX_BUF_SIZE 128
+ 
+@@ -579,6 +581,8 @@
+ 		#include "videoMode13/videoMode13.def.h"
+ 	#elif VIDEO_MODE == 14
+ 		#include "videoMode14/videoMode14.def.h"
++	#elif VIDEO_MODE == 19
++		#include "videoMode19/videoMode19.def.h"
+ 	#elif VIDEO_MODE == 23
+ 		#include "videoMode23/videoMode23.def.h"
+ 	#elif VIDEO_MODE == 40
