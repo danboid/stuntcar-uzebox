@@ -8,7 +8,7 @@ A port of the race logic of [*Stunt Car Racer Remake*](https://github.com/ptitSe
 SCR is made possible on the Uzebox by two new components introduced by this game:
 
 * **Uzebox video mode 19** (`videoMode19/`) - run-length-encoded scanlines: 256 x 110 pixels,
-  256 colours, the CPU free during long runs. Its called 19 because S is the 19th letter of the 
+  256 colours, the CPU free during long runs. It's called 19 because S is the 19th letter of the 
   alphabet and the first letter of both Stunt Car Racer and Sega. It was initially inspired by 
   CunningFellow's RLE video mode.
   
@@ -35,12 +35,12 @@ picture 1.8% faster). Its pictures are identical. Which build to use is decided 
 the Uzebox: a build for the other size does not run (in cuzebox-ex the `.uze` header's
 `spiram=` sets the chip).
 
-You should be able to run the 128 KB build on Uzebox's with more SPI RAM when that becomes an option.
+You should be able to run the 128 KB build on Uzeboxes with more SPI RAM when that becomes an option.
 
 ## Running
 
 Copy `scr.uze` or `scr_64k.uze` and `data/SCRTRK.BIN` to the root of your Uzebox SD card or load
-one of these files in (**cuzebox-ex.**)[https://github.com/weber21w/cuzebox-ex]
+one of these files in [**cuzebox-ex**.](https://github.com/weber21w/cuzebox-ex)
 
 ## Controls
 
@@ -67,7 +67,7 @@ displayed on the track selection screen. One brown square = track #1 etc.
 
 ## Building
 
-Building SCR requires at least avr-gcc 7.3 or later; 16.2 is recommended.
+Building SCR requires avr-gcc 7.3 or later; 16.2 is recommended.
 
 ```sh
 # 1. Prepare the Uzebox kernel with the patch (registers video mode 19; sound buffer size)
@@ -80,7 +80,7 @@ git -C uzebox show origin/master:tools/packrom/packrom.cpp > packrom.cpp
 g++ -O2 -o packrom packrom.cpp
 
 # 3. Build the game (128 KB SPI RAM version)
-cd scr_uzebox/game
+cd stuntcar-uzebox/game
 make KERNEL_DIR=../../uzebox/kernel                     # -> scr.hex
 make uze KERNEL_DIR=../../uzebox/kernel PACKROM=../../packrom   # -> scr.uze
 
@@ -105,7 +105,7 @@ tree.
 | `SPIRAM=64` | the build for a 64 KB SPI RAM (23LC512), ~4% faster (see "128 KB or 64 KB SPI RAM") |
 | `FAST=0` | the C edge setup that sorts on insertion (default `FAST=1`: edge lists sorted once per picture, edge setup in assembly) |
 | `FASTDIV=0` | the compact (loop) 32/16 division instead of the unrolled one (~320 bytes less, ~2% slower) |
-| `TRASM=0` | the vertex transform in C (~100 bytes less, ~1% slower) |
+| `TRASM=0` | the vertex transform in C (~100 bytes larger, ~1% slower) |
 | `SDBASE=sdBase.o EXTRA=-DSCR_SDBASE` | SD loading without the v5 bootloader (standard-capacity FAT16 cards; plain emulator runs) |
 
 ## Repository contents
@@ -133,7 +133,7 @@ rows are copied from SPI RAM into the 256-byte ring that mode 19 plays out, 256 
 
 Internal RAM (4 KB): ring 0x100, Model S workspace 0x200 (688 bytes, shared in turn by the
 renderer, the rasterizer's edge pool and output row, and the SD loader), the renderer's row heads
-0x4B0 (220 bytes, also the rasterizer's extra edge slots), data/bss from 0x58C, ~870 bytes of
+0x4B0 (220 bytes, also the rasterizer's extra edge slots), data/bss from 0x58C, ~850 bytes of
 stack. SPI RAM (128 KB build): track data 0x00000, edge slots 0x14000, edge stream 0x15000,
 pictures 0x18000 / 0x1C000; 64 KB build: 0x0000, 0x6000, 0x7000, 0x8000 / 0xC000.
 
@@ -165,10 +165,10 @@ Now: the copy task reads consecutive rows in one SPI transaction, at the bus's p
 the rasterizer), and a copy task that waited for the bus runs as soon as it is free; and a row
 keeps at most scr_short_budget pixels in runs shorter than 28 - which the mode draws inside its
 interrupt - beyond that, short runs are merged into blocks of 28 (modelS_rast.S, emitb). The
-budget adapts (scr_game.c, short_budget_adapt): full detail (254) while the mode keeps up; after
-a picture with underruns 64, which kept 150 views around those corners free of them; then 8 more
-after every 64 pictures without. So a striped wall keeps its stripes (the track 8 preview in the
-menu), and entering a really busy stretch costs one picture with a few black lines.
+budget adapts full detail (254) while the mode keeps up; after a picture with underruns 64, which 
+kept 150 views around those corners free of them; then 8 more after every 64 pictures without. 
+So a striped wall keeps its stripes (the track 8 preview in the menu), and entering a really busy 
+stretch costs one picture with a few black lines.
 
 The rasterizer keeps up to 71 edges active in a row: 48 slots in the shared workspace plus 24 in
 the renderer's row heads (`scr_bucket`, 220 bytes), placed right after them in `scr_bufs.S` - free
@@ -239,8 +239,7 @@ cd data && python3 gen_trackdata.py source/orig_tracks.json source/Tracks
 ## Known limitations
 
 * One sound voice: during an effect the engine note is silent.
-* About 7-8 display frames per game tick (the Amiga version ran at 6).
-* Flash: ~0.4 KB free with avr-gcc 7.3.0, ~0.1 KB with 5.4.0 (below the 61,184-byte limit).
+* Flash: 280 bytes free with avr-gcc 7.3.0, 62 bytes free with avr-gcc 16.2 (below the 61,352-byte limit).
 * About 7-8 display frames per game tick while racing (the Amiga version ran at 6). Rendering a
   picture takes ~1.22 M cycles (game path), plus the opponent's car when it is in view.
   
