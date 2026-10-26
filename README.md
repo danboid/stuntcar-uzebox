@@ -1,8 +1,9 @@
 # Stunt Car Racer for the Uzebox
 
-A port of the race logic of *Stunt Car Racer Remake* (the PC remake of Geoff Crammond's
-1989 game, Linux port by ptitSeb) to the Uzebox by Dan MacDonald with the assistance of Claude 
-Opus 5.5.
+A port of the race logic of [*Stunt Car Racer Remake*](https://github.com/ptitSeb/stuntcarremake) (the PC remake of Geoff Crammond's
+1989 game by ptitSeb) to the Uzebox by Dan MacDonald with the assistance of Claude Opus 5.5.
+
+<img src="Stunt_Car_Racer_Uzebox.png" alt="Stunt Car Racer cuzebox-ex screenshot" />
 
 SCR is made possible on the Uzebox by two new components introduced by this game:
 
@@ -39,20 +40,20 @@ You should be able to run the 128 KB build on Uzebox's with more SPI RAM when th
 ## Running
 
 Copy `scr.uze` or `scr_64k.uze` and `data/SCRTRK.BIN` to the root of your Uzebox SD card or load
-one of these files in **cuzebox-ex** 
+one of these files in (**cuzebox-ex.**)[https://github.com/weber21w/cuzebox-ex]
 
 ## Controls
 
-Left and right cursor keys = dpad (steering)
-Enter = Start (Start / pause / resume race)
-A = B button (accelerate) 
-Q = Y button (brake)
-S = A button (boost)
-Space = Select (mute sound)
+* Left and right cursor keys = dpad (steering)
+* Enter = Start (Start / pause / resume race)
+* A = B button (accelerate) 
+* Q = Y button (brake)
+* S = A button (boost)
+* Space = Select (mute sound)
 
 ## Game interface
 
-When you start the game you are presented with the track selection menu.
+When you start the game you are presented with the track selection screen.
 Pushing left or right chooses the track, their number is indicated by the row of brown squares
 displayed on the track selection screen. One brown square = track #1 etc.
 
@@ -61,8 +62,8 @@ displayed on the track selection screen. One brown square = track #1 etc.
 * When the race is over you will see a large green (won) or red (lost) square before you are
   returned to the track selection screen.
   
-* Start-up failures: solid **blue** = the SPI RAM failed a write/read test; solid **red** =
-  SD card / FAT / `SCRTRK.BIN` / bootloader problem.
+* Start-up failures: solid **blue** screen = the SPI RAM failed a write/read test; solid **red**
+  screen = SD card / FAT / `SCRTRK.BIN` / bootloader problem.
 
 ## Building
 
@@ -246,8 +247,9 @@ cd data && python3 gen_trackdata.py source/orig_tracks.json source/Tracks
 ## Credits and licensing
 
 * *Stunt Car Racer*: Geoff Crammond / MicroStyle (1989). The track files in
-  `data/source/Tracks` and the data derived from them are the game's.
+  `data/source/Tracks` and the data derived from them are from the original game.
 * The race logic in `port/` (`Car_Behaviour.cpp`, `Opponent_Behaviour.cpp`, `3D_Engine.cpp`,
   `Track` data handling) is derived from the *Stunt Car Racer Remake* source as published at
   https://github.com/ptitSeb/stuntcarremake (commit 9f0f8e6), as are the reference files in
   `tests/reference/src`.
+* The Uzebox kernel and the original code in this game are licensed under the GNU GPL v3.0.
