@@ -72,7 +72,7 @@ Building SCR requires avr-gcc 7.3 or later; 16.2 is recommended.
 ```sh
 # 1. Prepare the Uzebox kernel with the patch (registers video mode 19; sound buffer size)
 git clone https://github.com/Uzebox/uzebox.git
-cd uzebox && git checkout 384ceb3 && git apply ../scr_uzebox/kernel/uzebox_kernel.patch && cd ..
+cd uzebox && git checkout 384ceb3 && git apply ../stuntcar-uzebox/kernel/uzebox_kernel.patch && cd ..
 
 # 2. Build packrom (packs the .hex into a .uze): version 1.6 or later
 #    (the kernel above stays at 384ceb3)
