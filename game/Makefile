@@ -101,7 +101,7 @@ modelS_emit.o: $(MODELS)/modelS_emit.S
 modelS_rast.o: $(MODELS)/modelS_rast.S
 	avr-gcc -mmcu=$(MCU) $(SPIRDEF) $(EXTRA) -x assembler-with-cpp -DRAST_TO_BUF -c $< -o $@
 scr_copy.o: scr_copy.S
-	avr-gcc -mmcu=$(MCU) -x assembler-with-cpp -c $< -o $@
+	avr-gcc -mmcu=$(MCU) $(SPIRDEF) $(EXTRA) -x assembler-with-cpp -c $< -o $@
 scr_cam3.o: $(SRC)/scr_cam3.S
 	avr-gcc -mmcu=$(MCU) $(SPIRDEF) -x assembler-with-cpp -c $< -o $@
 scr_xram.o: $(SRC)/scr_xram.S
@@ -124,3 +124,6 @@ PACKROM ?= packrom
 uze: scr.hex
 	$(if $(filter 64,$(SPIRAM)),sed 's/^spiram=.*/spiram=1/' gameinfo.properties > gameinfo_64k.properties &&) \
 	$(PACKROM) scr.hex scr.uze $(if $(filter 64,$(SPIRAM)),gameinfo_64k.properties,gameinfo.properties)
+	@# the track data at the end (the game finds it there): padding to a whole sector, SCRTRK.BIN
+	n=$$(wc -c < scr.uze); dd if=/dev/zero bs=1 count=$$(( (512 - n % 512) % 512 )) 2>/dev/null >> scr.uze
+	cat $(ROOT)/data/SCRTRK.BIN >> scr.uze

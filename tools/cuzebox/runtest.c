@@ -25,7 +25,7 @@ int main(int argc, char** argv)
  filesys_setpath(argv[1], &(tstr[0]), 200U);   /* SD card = the program's folder, as in main.c */
  if (!cu_hfile_load(&(tstr[0]), &(cpu->crom[0]))){ fprintf(stderr, "hex load failed\n"); return 1; }
  cu_avr_autofuse(1);
- cu_spir_set_size(2U);
+ cu_spir_set_size(getenv("SPIR_BANKS") ? (unsigned)atoi(getenv("SPIR_BANKS")) : 2U);   /* SPIR_BANKS=1: a 64 KB chip */
  { cu_spisd_model_t m;           /* SD timing model as the cuzebox-ex front end (default NORMAL) */
    cu_spisd_model_preset(getenv("SDPRESET") ? (auint)strtoul(getenv("SDPRESET"), 0, 0) : CU_SPISD_PRESET_NORMAL, &m);
    cu_spisd_model_set(&m); }          /* 128 KB SPI RAM (23LC1024), as the cuzebox-ex front end */

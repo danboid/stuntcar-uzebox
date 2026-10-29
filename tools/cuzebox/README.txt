@@ -1,4 +1,6 @@
-Cycle-level test runners on cuzebox-ex (current version, headless build)
+Cycle-level test runners on cuzebox-ex (headless build; the profiling hook is made for commit
+bd55361 of 26 October 2026 - if a later version changed the code it patches, build.sh stops with
+a message)
 
 prof GAME.hex SKIP FRAMES PREFIX   runs SKIP frames, then records FRAMES frames:
     PREFIX.trace  every instruction (pc, cycles, IT vector, IT entry cycles)
@@ -14,7 +16,7 @@ prof GAME.hex SKIP FRAMES PREFIX   runs SKIP frames, then records FRAMES frames:
 runtest GAME.hex DONE_ADDR SRAM_DUMP   runs until RAM[DONE_ADDR] == 0xA5 (RT_LIMIT=chunks
   to stop earlier: SRAM and SPI RAM are dumped on timeout too), SPIR_DUMP as above.
 Both install a 128 KB SPI RAM (cu_spir_set_size(2), as the cuzebox-ex front end does - the
-emulator core has none by default) and point the emulated SD card at the program's folder.
+emulator core has none by default); SPIR_BANKS=1 installs a 64 KB one (for SPIRAM=64 builds) and point the emulated SD card at the program's folder.
 
 What moving to the current cuzebox-ex changed (all found by tests that passed before):
   - SPI RAM must be installed explicitly by a runner (see above).

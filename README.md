@@ -8,17 +8,17 @@ A port of the race logic of [*Stunt Car Racer Remake*](https://github.com/ptitSe
 SCR is made possible on the Uzebox by two new components introduced by this game:
 
 * **Uzebox video mode 19** (`videoMode19/`) - run-length-encoded scanlines: 256 x 110 pixels,
-  256 colours, the CPU free during long runs. It's called 19 because S is the 19th letter of the 
-  alphabet and the first letter of both Stunt Car Racer and Sega. It was initially inspired by 
+  256 colours, the CPU free during long runs. It's called 19 because S is the 19th letter of the
+  alphabet and the first letter of both Stunt Car Racer and Sega. It was initially inspired by
   CunningFellow's RLE video mode.
-  
+
 * **Model S** (`modelS/`) - the polygon renderer and the scanline rasterizer that feed mode 19,
   named in tribute to Sega's Model series of arcade hardware which began with Model 1 and
-  Virtua Racing. 
-  
+  Virtua Racing.
+
 ## Requirements
 
-Requires a Uzebox with at least **64 KB SPI RAM** and the **Uzebox bootloader 5.0.06 or later**
+Requires a Uzebox with at least **64 KB SPI RAM** and the **Uzebox bootloader 5.0.06 or later**.
 
 ### 128 KB or 64 KB SPI RAM?
 
@@ -30,23 +30,23 @@ as most Uzeboxes have it; `SPIRAM=64` makes the 64 KB one.
 The game itself needs only 64 KB (track data 21 KB, edge slots 4 KB, the edge stream, two
 pictures of 16 KB). On a 64 KB chip every transfer is one byte shorter - the renderer, the
 rasterizer and the video copy task make thousands per picture - so the 64 KB build runs about
-**4% faster** (in cuzebox-ex: 6.92 instead of 7.20 display frames per game tick; rendering a
-picture 1.8% faster). Its pictures are identical. Which build to use is decided by the chip in
-the Uzebox: a build for the other size does not run (in cuzebox-ex the `.uze` header's
-`spiram=` sets the chip).
+**4% faster** (measured with an earlier build: 6.92 instead of 7.20 display frames per game
+tick). Its pictures are identical. Which build to use is decided by the chip in the Uzebox: a
+build for the other size does not run (in cuzebox-ex the `.uze` header's `spiram=` sets the
+chip).
 
 You should be able to run the 128 KB build on Uzeboxes with more SPI RAM when that becomes an option.
 
 ## Running
 
-Copy `scr.uze` or `scr_64k.uze` and `data/SCRTRK.BIN` to the root of your Uzebox SD card or load
-one of these files in [**cuzebox-ex**.](https://github.com/weber21w/cuzebox-ex)
+Copy `scr.uze` (or `scr_64k.uze`) to the root of your Uzebox SD card, or load it in
+[**cuzebox-ex**](https://github.com/weber21w/cuzebox-ex).
 
 ## Controls
 
 * Left and right cursor keys = dpad (steering)
 * Enter = Start (Start / pause / resume race)
-* A = B button (accelerate) 
+* A = B button (accelerate)
 * Q = Y button (brake)
 * S = A button (boost)
 * Space = Select (mute sound)
@@ -59,15 +59,20 @@ displayed on the track selection screen. One brown square = track #1 etc.
 
 * In game HUD: red bar = damage, yellow bar = boost, violet squares = laps begun.
 
-* When the race is over you will see a large green (won) or red (lost) square before you are
-  returned to the track selection screen.
-  
+* Paused: two white bars in the middle of the screen. Muted: a white loudspeaker triangle with
+  a red cross, bottom right.
+
+* When the race is over you will see a large green (won) or red (lost) square for about four
+  seconds before you are returned to the track selection screen.
+
 * Start-up failures: solid **blue** screen = the SPI RAM failed a write/read test; solid **red**
-  screen = SD card / FAT / `SCRTRK.BIN` / bootloader problem.
+  screen = SD card / FAT / bootloader problem, or no `.uze` with the track data in the card's
+  root directory.
 
 ## Building
 
-Building SCR requires avr-gcc 7.3 or later; 16.2 is recommended.
+Building SCR requires avr-gcc 7.3 or later; 16.2 is recommended (the fastest: the release
+builds use it).
 
 ```sh
 # 1. Prepare the Uzebox kernel with the patch (registers video mode 19; sound buffer size)
@@ -82,7 +87,7 @@ g++ -O2 -o packrom packrom.cpp
 # 3. Build the game (128 KB SPI RAM version)
 cd stuntcar-uzebox/game
 make KERNEL_DIR=../../uzebox/kernel                     # -> scr.hex
-make uze KERNEL_DIR=../../uzebox/kernel PACKROM=../../packrom   # -> scr.uze
+make uze KERNEL_DIR=../../uzebox/kernel PACKROM=../../packrom   # -> scr.uze (with the track data)
 
 # or build the 64 KB SPI RAM version
 make clean
@@ -90,10 +95,32 @@ make SPIRAM=64 KERNEL_DIR=../../uzebox/kernel
 make uze SPIRAM=64 KERNEL_DIR=../../uzebox/kernel PACKROM=../../packrom
 ```
 
-`KERNEL_DIR` defaults to `../../uzebox/kernel`: in the layout above, `uzebox/` is next to 
-`stuntcar-uzebox/`. The game builds with `-DVIDEO_MODE=19`; the kernel finds `videoMode19/` 
-through the include path (`-I` the package root), so nothing has to be copied into the kernel 
-tree.
+`KERNEL_DIR` defaults to `../../uzebox/kernel`: in the layout above, `uzebox/` is next to
+`stuntcar-uzebox/`. The game builds with `-DVIDEO_MODE=19`; the kernel finds `videoMode19/`
+through the include path (`-I` the package root), so nothing has to be copied into the kernel
+tree. Run `make clean` after changing any build option: make does not notice a changed `EXTRA`.
+
+`make uze` appends the track data (`data/SCRTRK.BIN`) to the `.uze`: after packrom's header and
+program, padding to a whole 512-byte sector, then the data's 41 sectors. The bootloader programs
+only the program part (its size is in the header) and ignores the rest. At start-up the game
+searches the SD card's root directory - the bootloader starts games from there only - for a
+`.UZE` file larger than any game alone can be (the 512-byte header plus the 61,440 bytes below
+the bootloader) and a whole number of sectors, reads its last 41 sectors and checks that they
+begin with `SCR_DATA_SIG` (the data's first bytes, in `port/scr_trackdata.h`). Its name does not
+matter; with several such files the first is used (every version of the game holds the same
+data). No such file: the red start-up screen.
+
+**Flash limit.** The Makefile stops at 61,352 bytes (0xEFA8), not at the bootloader's 61,440:
+a build whose initialized data - copied from the end of the image at start-up, the pictures'
+SPI RAM addresses among it - reached 0xEFB8-0xEFDA lost it on an Uzebox Omega (a stable
+picture for half a second, then a rolling one), while one ending at 0xEFA8 ran. This version:
+61,298 bytes with avr-gcc 16.2.0 (61,268 for the 64 KB build), 60,976 with 7.3.0; 5.x no longer
+fits.
+
+The game is compiled with `-fno-gcse -fno-move-loop-invariants`, which make the AVR code ~1.2 KB
+smaller at the same speed. With avr-gcc 15 or later the Makefile also adds `-mno-fuse-move`
+(16.2's fuse-move pass crashes - an internal compiler error - on this code) and three size
+flags, and leaves out the unrolled division.
 
 ## Build options (`make ... EXTRA="..."`)
 
@@ -104,19 +131,19 @@ tree.
 | `EXTRA=-DDEBUG_STATS FLASH_LIMIT=65536` | boot stage, phase, counters and stack painting in RAM (too large for the bootloader: emulator only) |
 | `SPIRAM=64` | the build for a 64 KB SPI RAM (23LC512), ~4% faster (see "128 KB or 64 KB SPI RAM") |
 | `FAST=0` | the C edge setup that sorts on insertion (default `FAST=1`: edge lists sorted once per picture, edge setup in assembly) |
-| `FASTDIV=0` | the compact (loop) 32/16 division instead of the unrolled one (~320 bytes less, ~2% slower) |
-| `TRASM=0` | the vertex transform in C (~100 bytes larger, ~1% slower) |
-| `SDBASE=sdBase.o EXTRA=-DSCR_SDBASE` | SD loading without the v5 bootloader (standard-capacity FAT16 cards; plain emulator runs) |
+| `FASTDIV=1` / `0` | the fully unrolled 32/16 division (~300 bytes more, ~2% faster) or the compact one, its loop unrolled four times. Default: 1 with avr-gcc 7.x-14.x, 0 with 15+ (it does not fit) |
+| `TRASM=0` | the vertex transform in C (~100 bytes more and ~1% slower than the default assembly) |
+| `SDBASE=sdBase.o EXTRA=-DSCR_SDBASE` | SD loading without the v5 bootloader, from a `SCRTRK.BIN` (standard-capacity FAT16 cards; the emulator test runners) |
 
 ## Repository contents
 
 | Folder | |
 |---|---|
-| `game/` | the main program (C), the C++ glue, fixed-address buffers, the copy task's row loop (`scr_copy.S`), Makefile, `gameinfo.properties` |
+| `game/` | the main program (C), the C++ glue, fixed-address buffers, the video copy task (`scr_copy.S`), Makefile, `gameinfo.properties` |
 | `videoMode19/` | Uzebox video mode 19 (`videoMode19.s`, `.h`, `.def.h`), in the kernel's layout |
 | `modelS/` | Model S: `modelS_render.cpp/.h` (polygon renderer), `modelS_rast.S` (rasterizer), and in assembly `modelS_emit.S` (edge setup), `modelS_clip.S` (clipping), `modelS_emitclip.S` (clipped polygons to edges), `modelS_transform.S` (vertex transform), `modelS_loadrows.S` (track rows to the screen), `modelS_car.S` (the opponent's car) |
 | `port/` | the remake's race logic (ported to integer arithmetic), track module, I/O, assembly helpers |
-| `data/` | `SCRTRK.BIN` (track data for the SD card), its generator and sources |
+| `data/` | `SCRTRK.BIN` (the track data, appended to the `.uze`), its generator and sources |
 | `kernel/uzebox_kernel.patch` | registers video mode 19 in the kernel's `defines.h`, and lets a game size the sound buffer |
 | `tests/` | PC-vs-AVR logic test; `reference/`: comparison with the original remake |
 | `tools/cuzebox/` | cycle-level test runners for cuzebox-ex (`runtest`, `prof`) |
@@ -131,11 +158,20 @@ Per display frame (background task in video mode 19's line interrupt): the shown
 rows are copied from SPI RAM into the 256-byte ring that mode 19 plays out, 256 x 110 pixels
 (each row shown on two scanlines), 256 colours. Mode 19 resynchronises at every frame start.
 
+Where the time goes (profiled racing on track 1, before the latest optimizations): video mode
+19's interrupt ~39% of the CPU and the copy task ~10% - a fixed cost of the display - then
+rendering ~39%, rasterizing ~7% and the physics ~5%.
+
 Internal RAM (4 KB): ring 0x100, Model S workspace 0x200 (688 bytes, shared in turn by the
 renderer, the rasterizer's edge pool and output row, and the SD loader), the renderer's row heads
 0x4B0 (220 bytes, also the rasterizer's extra edge slots), data/bss from 0x58C, ~850 bytes of
 stack. SPI RAM (128 KB build): track data 0x00000, edge slots 0x14000, edge stream 0x15000,
 pictures 0x18000 / 0x1C000; 64 KB build: 0x0000, 0x6000, 0x7000, 0x8000 / 0xC000.
+
+SPI RAM transfers (`port/scr_xram.S`): about 1,100 per game tick, ~7 bytes on average, so the
+short ones (up to 32 bytes, nearly all) go in one transaction without the long path's
+bookkeeping; longer ones in chunks of 32 (the copy task never waits long for the bus). The byte
+loops overlap: each byte's transfer starts as soon as the previous one is in.
 
 Sound: the engine note is a sawtooth loop written into the kernel's sample buffer; the remake's
 effects (Grounded, OffRoad, Wreck, Smash, Creak, HitCar) replace it with noise loops for a few
@@ -157,24 +193,25 @@ turn, the road under the car went missing). When the renderer runs out of region
 slots (440), or the rasterizer of active-edge slots (71), the next pictures draw fewer of the
 farthest pieces, and recover them one by one.
 
-Keeping video mode 19 fed: a copy task (bg_task, in the line interrupt) moves the finished
-picture's rows from SPI RAM into the mode's 256-byte ring. If it falls behind, the mode shows
-black lines (underruns) - on busy views, such as Roller Coaster's banked corners, it used to.
-Now: the copy task reads consecutive rows in one SPI transaction, at the bus's pace
-(game/scr_copy.S); every other SPI transfer holds the bus for at most 32 bytes (or one edge, in
-the rasterizer), and a copy task that waited for the bus runs as soon as it is free; and a row
-keeps at most scr_short_budget pixels in runs shorter than 28 - which the mode draws inside its
+Keeping video mode 19 fed: the copy task (`bg_task` in `game/scr_copy.S`, in the line interrupt)
+moves the finished picture's rows from SPI RAM into the mode's 256-byte ring. If it falls
+behind, the mode shows black lines (underruns) - on busy views, such as Roller Coaster's banked
+corners, it used to. Now: the copy task reads consecutive rows in one SPI transaction, at the
+bus's pace; every other SPI transfer holds the bus for at most 32 bytes (or one edge, in the
+rasterizer), and a copy task that waited for the bus runs as soon as it is free; and a row keeps
+at most scr_short_budget pixels in runs shorter than 28 - which the mode draws inside its
 interrupt - beyond that, short runs are merged into blocks of 28 (modelS_rast.S, emitb). The
-budget adapts full detail (254) while the mode keeps up; after a picture with underruns 64, which 
-kept 150 views around those corners free of them; then 8 more after every 64 pictures without. 
-So a striped wall keeps its stripes (the track 8 preview in the menu), and entering a really busy 
-stretch costs one picture with a few black lines.
+budget adapts (scr_game.c, draw_limit_adapt): full detail (254) while the mode keeps up; after
+a picture with underruns 64, which kept 150 views around those corners free of them; then 8 more
+after every 64 pictures without. So a striped wall keeps its stripes (the track 8 preview in the
+menu), and entering a really busy stretch costs one picture with a few black lines.
 
-The rasterizer keeps up to 71 edges active in a row: 48 slots in the shared workspace plus 24 in
-the renderer's row heads (`scr_bucket`, 220 bytes), placed right after them in `scr_bufs.S` - free
-while a picture is rasterized. If a picture still needs more (`rast_overflow` counts dropped
-edges; an unclosed region would show as a bar to the right edge), the next pictures draw 6 fewer
-of the farthest track pieces and recover one at a time.
+The rasterizer's edge pool has 72 slots - 48 in the shared workspace and 24 in the renderer's
+row heads (`scr_bucket`, 220 bytes), placed right after them in `scr_bufs.S`, free while a
+picture is rasterized; slot 0 takes the edges that do not fit, so 71 edges can be active in a
+row. If a picture still needs more (`rast_overflow` counts dropped edges; an unclosed region
+would show as a bar to the right edge), the next pictures draw 6 fewer of the farthest track
+pieces and recover one at a time.
 
 Assembly routines run in the main program alongside video mode 19's interrupt: they must never
 use r5 (the whole program is built with `-ffixed-r5`; saving and restoring it is not enough).
@@ -182,11 +219,12 @@ Their internal labels are assembler-local (`.L...`): only the entry points are s
 scripts find variables such as `done` by name).
 
 In assembly, each bit-identical to the C it replaces (kept, and selectable, for the PC builds and
-the tests): edge setup (`modelS_emit.S`), clipping (`modelS_clip.S`, `modelS_emitclip.S`), the vertex transform
-(`modelS_transform.S`), loading a chunk of rows (`modelS_loadrows.S`), the track rows
-(`port/scr_rows.S`) and the rotation coefficients (`port/scr_trig.S`) - both used by the renderer
-and the physics - plus the camera transform, divisions and SPI RAM transfers. Rendering a picture
-went from 1.48 M to 1.22 M cycles (the game path, without the opponent).
+the tests): edge setup (`modelS_emit.S`), clipping (`modelS_clip.S`, `modelS_emitclip.S`), the
+vertex transform (`modelS_transform.S`), loading a chunk of rows (`modelS_loadrows.S`), the track
+rows (`port/scr_rows.S`) and the rotation coefficients (`port/scr_trig.S`) - both used by the
+renderer and the physics - plus the camera transform, divisions, SPI RAM transfers and the video
+copy task. Rendering a picture went from 1.48 M to 1.22 M cycles (the renderer alone, without
+the opponent, measured with an earlier compiler).
 `scr_vtx` is 11 bytes on the AVR (no padding): the assembly steps through its arrays that way.
 
 **The opponent's car** is the remake's model (Car.cpp): a tapered body of six faces and four
@@ -194,9 +232,6 @@ wheels, 24 points, in the remake's colours, oriented by the opponent's three ang
 places it (Rz Rx Ry, using the physics' own CalcYXZTrigCoefficients, whose coefficients are kept),
 with back faces culled and the wheels drawn behind or in front of the body by depth. It costs ~4-5%
 of the tick rate while the opponent is on screen. `EXTRA=-DSCR_OPP_RECT` draws the old rectangle.
-
-The game is compiled with
-`-fno-gcse -fno-move-loop-invariants`, which make the AVR code ~1.2 KB smaller at the same speed.
 
 packrom takes the `.uze` header from `gameinfo.properties`, including `spiram=2` (the SPI RAM
 size in 64 KB banks) and `sd=fast` (the SD timing hint). For a `SPIRAM=64` build the Makefile
@@ -216,6 +251,8 @@ sh build_reference.sh               # clones the remake at commit 9f0f8e6, build
 sh compare_with_original.sh 3000    # -> "track n: 3000 ticks, first difference: none"
 ```
 
+The PC side of the logic test is built 32-bit: it needs `gcc-multilib` and `g++-multilib`.
+
 `compare_with_original.sh` builds the port with `SCR_EXACT_SIN` and `SCR_EXACT_CURVE` (the
 remake's sine table and its double-precision curve maths). The game itself keeps integer
 versions of these (a smaller sine table with interpolation, integer atan/sqrt), which differ by
@@ -223,7 +260,11 @@ rounding and make the races drift apart slowly; everything else is identical.
 
 The test runners: `sh tools/cuzebox/build.sh /path/to/cuzebox-ex-checkout` applies a small
 profiling hook, builds cuzebox-ex headless and links `runtest` and `prof` (details in
-`tools/cuzebox/README.txt`: `prof` records every instruction, video line and sound sample).
+`tools/cuzebox/README.txt`: `prof` records every instruction, video line and sound sample;
+`SPIR_BANKS=1` gives them a 64 KB SPI RAM for `SPIRAM=64` builds). The hook is made for
+cuzebox-ex commit bd55361 (26 October 2026); if a later version changes the code it patches,
+`build.sh` stops with a message. The runners read the track data from a `SCRTRK.BIN` beside the
+`.hex` (the SD loader they use, `SDBASE=sdBase.o`, has no `.uze` to search).
 
 ## Regenerating the track data
 
@@ -234,15 +275,16 @@ cd data && python3 gen_trackdata.py source/orig_tracks.json source/Tracks
 ```
 
 `source/orig_tracks.json` is dumped from the remake (`tests/reference/build/scr_dump`);
-`source/Tracks/*.bin` are the remake's track files. Both regenerate byte-identically.
+`source/Tracks/*.bin` are the remake's track files. Both regenerate byte-identically (the header
+includes `SCR_DATA_SIG`, the data's first bytes, by which the game recognizes it in a `.uze`).
 
 ## Known limitations
 
 * One sound voice: during an effect the engine note is silent.
-* Flash: 280 bytes free with avr-gcc 7.3.0, 62 bytes free with avr-gcc 16.2 (below the 61,352-byte limit).
-* About 7-8 display frames per game tick while racing (the Amiga version ran at 6). Rendering a
-  picture takes ~1.22 M cycles (game path), plus the opponent's car when it is in view.
-  
+* About 7 display frames per game tick while racing (the Amiga version ran at 6). Views of much
+  of a track at once - Roller Coaster in particular - are the slowest.
+* Flash: ~50 bytes free with avr-gcc 16.2.0 (~375 with 7.3.0), below the 61,352-byte limit.
+
 ## Credits and licensing
 
 * *Stunt Car Racer*: Geoff Crammond / MicroStyle (1989). The track files in

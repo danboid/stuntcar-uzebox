@@ -63,9 +63,9 @@ extern uint8_t scr_mute;                              /* sound off (SELECT); the
 uint16_t game_engine_hz(void);
 unsigned int game_autopilot(void);
 
-static volatile uint8_t front = 0xFF, pending = 0xFF;  /* picture shown / published */
-static uint8_t cp_row;                                 /* copy task: next row */
-static uint32_t cp_ptr;                                /* copy task: its position in the picture */
+volatile uint8_t front = 0xFF, pending = 0xFF;         /* picture shown / published */
+uint8_t cp_row;                                        /* copy task (scr_copy.S): next row */
+uint32_t cp_ptr;                                       /* copy task: its position in the picture */
 #ifdef DEBUG_STATS
 volatile uint16_t frames_rastered, ticks_done, late_ticks;
 #define COUNT(v) ((v)++)
@@ -85,17 +85,6 @@ volatile uint8_t run_phase;
 #endif                           /* 1 physics, 2 rendering, 4 rasterizing, 3 boot */
 volatile uint8_t render_frames;
 
-static uint8_t spi(uint8_t b) { SPDR = b; while (!(SPSR & (1 << SPIF))); return SPDR; }
-static void xbegin(uint8_t cmd, uint32_t a)
-{
-	PORTA &= ~(1 << PA4);
-	spi(cmd);
-#ifndef SCR_SPIRAM_64K
-	spi((uint8_t)(a >> 16));                               /* (64 KB chips take 16-bit addresses) */
-#endif
-	spi((uint8_t)(a >> 8)); spi((uint8_t)a);
-}
-static void xend(void) { PORTA |= (1 << PA4); }
 void spi_unlock(void);
 /* main program: SPI RAM access under the lock */
 /* main-program transfers: scr_xram.S's (the bus held per chunk of at most 32 bytes, the copy
@@ -105,51 +94,11 @@ void xram_write(uint32_t addr, const void *src, uint16_t n);
 #define lread(a, d, n) xram_read((a), (d), (n))
 #define lwrite(a, d, n) xram_write((a), (d), (n))
 
-/* background task: called from the line interrupt (or spi_unlock) with interrupts enabled.
- * Copies the rows of the picture being shown from SPI RAM into the ring, one complete row
- * at a time, while there is room. At row 0 it switches to a newly published picture and
- * publishes where row 0 starts in the ring (the mode resyncs there at each frame start). */
+/* background task: bg_task (scr_copy.S), called from the line interrupt (or spi_unlock) with
+ * interrupts enabled, copies the rows of the picture being shown from SPI RAM into the ring. */
 extern volatile uint8_t frame_start_w, frame_start_valid, rast_abort;
-static volatile uint8_t err_colour;                    /* boot failure: a solid screen of this */
-uint8_t scr_copy_row(uint8_t w, uint8_t n);           /* scr_copy.S */
-void bg_task(void)
-{
-	uint8_t open = 0;            /* rows lie one after another in SPI RAM: within one run of the task
-	                              * the read stays open across rows (no command and address per row) */
-	for (;;) {
-		uint8_t n, w, room;
-		if (err_colour) {                              /* (needs no SPI RAM) */
-			if (open) { xend(); open = 0; }
-			if ((uint8_t)(ring_w - r5_ring) > 254 - 6) return;
-			w = ring_w;
-			ring[w++] = err_colour; ring[w++] = 126 << 1;   /* 128 + 128 pixels, end of line */
-			ring[w++] = err_colour; ring[w++] = 126 << 1;
-			ring[w++] = 1; ring[w++] = 0xFE;
-			if (cp_row == 0) { frame_start_w = ring_w; frame_start_valid = 1; }
-			ring_w = w;
-			m19_video_on = 1;
-			if (++cp_row == NROWS) cp_row = 0;
-			continue;
-		}
-		if (rast_abort) { rast_abort = 0; cp_row = 0; }  /* the mode is resyncing */
-		if (cp_row == 0) {
-			if (open) { xend(); open = 0; }            /* (a new picture: another address) */
-			if (pending != front) front = pending;
-			cp_ptr = pic_base[front];
-			frame_start_w = ring_w;
-			frame_start_valid = 1;
-		}
-		room = (uint8_t)(254 - (uint8_t)(ring_w - r5_ring));
-		if (!open) { xbegin(3, cp_ptr); open = 1; }
-		n = spi(0xFF);                                 /* the row's length */
-		if (n > room) { xend(); return; }              /* not enough room yet (re-read next time) */
-		w = scr_copy_row(ring_w, n);                   /* (scr_copy.S: at the bus's pace) */
-		ring_w = w;                                    /* publish the complete row */
-		cp_ptr += 1 + n;
-		m19_video_on = 1;
-		if (++cp_row == NROWS) { cp_row = 0; COUNT(frames_rastered); }
-	}
-}
+volatile uint8_t err_colour;                           /* boot failure: a solid screen of this */
+void bg_task(void);
 
 /* rasterize the picture in EDGE_STREAM into pic_base[buf] (main program, once per picture) */
 static void rast_reset(void)

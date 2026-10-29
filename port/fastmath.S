@@ -33,23 +33,11 @@ sdiv32_16:
 	mov	r23, r22
 	clr	r22
 	rjmp	q_step8
-q_full:	ldi	r18, 16                 ; 16 quotient bits (a loop: ~390 bytes less than unrolled,
-	rjmp	qloop                   ; ~2 cycles more per bit)
+q_full:	ldi	r18, 16                 ; 16 quotient bits
+	rjmp	1f
 q_step8:
 	ldi	r18, 8                  ; (top 8 quotient bits known zero)
-qloop:	lsl	r22
-	rol	r23
-	rol	r24
-	rol	r25
-	brcs	1f
-	cp	r24, r20
-	cpc	r25, r21
-	brlo	2f
-1:	sub	r24, r20
-	sbc	r25, r21
-	ori	r22, 1
-2:	dec	r18
-	brne	qloop
+1:	rcall	udiv_n
 	movw	r24, r22
 	tst	r25
 	brmi	sat
@@ -67,22 +55,31 @@ sat:	ldi	r24, 0xFF
 	.size sdiv32_16, .-sdiv32_16
 
 /* uint16 core: (r25:r24:r23:r22) / (r21:r20) with r25:r24 < d.
- * quotient -> r23:r22, remainder -> r25:r24. Uses r18. */
-udiv_core:
-	ldi	r18, 16
-1:	lsl	r22
+ * quotient -> r23:r22, remainder -> r25:r24. Uses r18. udiv_n: r18 quotient bits (8 or 16),
+ * four per pass of the loop (a full unroll is FASTDIV's: ~300 bytes more) */
+	.macro	QSTEP
+	lsl	r22
 	rol	r23
 	rol	r24
 	rol	r25
-	brcs	2f
+	brcs	1\@f
 	cp	r24, r20
 	cpc	r25, r21
-	brlo	3f
-2:	sub	r24, r20
+	brlo	2\@f
+1\@:	sub	r24, r20
 	sbc	r25, r21
 	ori	r22, 1
-3:	dec	r18
-	brne	1b
+2\@:
+	.endm
+udiv_core:
+	ldi	r18, 16
+udiv_n:
+	QSTEP
+	QSTEP
+	QSTEP
+	QSTEP
+	subi	r18, 4
+	brne	udiv_n
 	ret
 
 /* int32_t sdiv32_16_32(int32_t n, uint16_t d): n / d for d > 0, truncating toward

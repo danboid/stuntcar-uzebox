@@ -70,37 +70,48 @@ static uint8_t bl_present(void)                             /* signature B0 07 1
 	       (pgm_read_byte((const void *)0xF006) > 0x50 ||    /* version: 0xF006 major/minor (0x50 = 5.0), */
 	        (pgm_read_byte((const void *)0xF006) == 0x50 && pgm_read_byte((const void *)0xF007) >= 0x06));   /* 0xF007 patch */
 }
-/* SCRTRK.BIN -> SPI RAM */
+/* The track data -> SPI RAM: from the end of the game's own .uze (where `make uze` appends it: the
+ * header, the program, padding to a whole sector, then the 41 sectors of SCRTRK.BIN). The
+ * bootloader starts games from the root directory only, so the root is searched for a .UZE larger
+ * than any game alone can be (the 512-byte header and the 61,440 bytes below the bootloader) and
+ * a whole number of sectors - its data checked: SCR_DATA_SIG. (The sdBase path below, for
+ * emulator tests without the bootloader, reads a SCRTRK.BIN.) */
+static const uint8_t data_sig[] PROGMEM = { SCR_DATA_SIG };
+__attribute__((noinline)) static uint8_t bl_next(bl_sds_t *s) { return BL(0xF024, bl_fn_t)(s); }   /* FAT_Next_Sector */
+__attribute__((noinline)) static uint8_t bl_read(bl_sds_t *s) { return BL(0xF020, bl_fn_t)(s); }   /* FAT_Read_Sector */
 int scr_load_tracks(void)
 {
 	extern uint8_t scr_io_buffer[];   /* 512 bytes, only during loading: the renderer's workspace */
-	uint8_t *buf = scr_io_buffer;
-	uint8_t k;
+	uint8_t *buf = scr_io_buffer, *e;
+	uint8_t k, skip;
 	PORTA |= (1 << PA4); DDRA |= (1 << PA4);
 	DDRB |= (1 << PB7) | (1 << PB5) | (1 << PB4);
 	if (bl_present()) {                                     /* SDHC, FAT32, fragmentation */
 		bl_sds_t sds;
 		sds.bufp = buf;
-		uint8_t r;
-		r = BL(0xF01C, bl_fn_t)(&sds);                     /* FAT_Init */
-		if (r) return 0;
+		if (BL(0xF01C, bl_fn_t)(&sds)) return 0;          /* FAT_Init */
 		BL(0xF028, bl_vfn_t)(&sds);                          /* FAT_Select_Root */
-		for (uint16_t n = 0; ; n++) {                       /* root directory, 16 entries a sector */
-			if (n == 64 || BL(0xF020, bl_fn_t)(&sds)) return 0;   /* FAT_Read_Sector */
-			for (k = 0; k < 16; k++)
-				if (memcmp_P(buf + 32 * k, trkfile, 11) == 0) goto found;
-			if (BL(0xF024, bl_fn_t)(&sds)) return 0;        /* FAT_Next_Sector */
+		for (uint8_t n = 0; ; n++) {                        /* root directory, 16 entries a sector */
+			if (n == 64 || bl_read(&sds)) return 0;
+			for (k = 0; k < 16; k++) {
+				e = buf + 32 * k;
+				uint16_t mid = *(uint16_t *)(e + 29);        /* file size bits 8..23 */
+				if (!e[0]) return 0;                         /* the end of the directory */
+				if (e[8] == 'U' && e[9] == 'Z' && e[10] == 'E' && !e[28] && !(mid & 1) && (mid >> 1) > 121) {
+					skip = (uint8_t)((mid >> 1) - SCR_DATA_SIZE / 512);   /* (the data: its last 41 sectors) */
+					goto found;
+				}
+			}
+			if (bl_next(&sds)) return 0;
 		}
 	found:
-		{
-			uint32_t cl = BL(0xF02C, bl_clus_t)(&sds, buf + 32 * k);   /* FAT_Get_File_Cluster */
-			if (cl == 0) return 0;
-			BL(0xF02A, bl_sel_t)(&sds, cl);                  /* FAT_Select_Cluster */
-		}
+		BL(0xF02A, bl_sel_t)(&sds, BL(0xF02C, bl_clus_t)(&sds, e));   /* FAT_Select_Cluster (its first) */
+		for (; skip; skip--) if (bl_next(&sds)) return 0;
 		for (k = 0; k < SCR_DATA_SIZE / 512; k++) {
-			if (BL(0xF020, bl_fn_t)(&sds)) return 0;        /* FAT_Read_Sector */
+			if (bl_read(&sds)) return 0;
+			if (k == 0 && memcmp_P(buf, data_sig, sizeof(data_sig))) return 0;
 			xram_write(XRAM_TRACKS + (uint32_t)k * 512, buf, 512);
-			if (k + 1 < SCR_DATA_SIZE / 512 && BL(0xF024, bl_fn_t)(&sds)) return 0;
+			if (k + 1 < SCR_DATA_SIZE / 512 && bl_next(&sds)) return 0;
 		}
 		return 1;
 	}

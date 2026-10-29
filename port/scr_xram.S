@@ -34,8 +34,11 @@ xram_start:                             ; r26 = command, r22..r24 = address
 	movw	r30, r20                ; Z = buffer
 	ret
 
-; Transfers of more than 32 bytes go in chunks, each its own transaction, with spi_unlock() in
-; between: the copy task (which feeds the video mode) never waits long for the bus.
+; Transfers of up to 32 bytes (nearly all of them: ~7 bytes on average) in one transaction,
+; without the long path's bookkeeping. Longer ones go in chunks of 32, each its own transaction,
+; with spi_unlock() in between: the copy task (which feeds the video mode) never waits long for
+; the bus. The byte loops overlap: the next byte's transfer starts as soon as the last one is in,
+; the store (or the next load) done while it runs.
 #define CHUNK 32
 	.section .text.xram_read
 	.global	xram_read
@@ -45,7 +48,56 @@ xram_read:
 	rjmp	1f
 xram_write:
 	ldi	r26, 2
-1:	push	r11
+1:	cpi	r18, CHUNK + 1
+	cpc	r19, r1
+	brsh	10f                     ; long: in chunks
+	tst	r18
+	breq	8f
+	mov	r19, r26                ; direction (bit 0: read)
+	rcall	xram_start              ; (Z = buffer)
+	mov	r27, r18
+	rcall	xfer
+	sbi	_SFR_IO_ADDR(PORTA), PA4
+	jmp	spi_unlock              ; (runs the copy task if it waited)
+8:	ret
+
+; r27 bytes (1 .. 255) at Z, direction r19 bit 0 (1: read); the transaction open. Uses r0, r26.
+xfer:	sbrs	r19, 0
+	rjmp	5f
+	ldi	r26, 0xFF               ; read
+	out	_SFR_IO_ADDR(SPDR), r26
+3:	dec	r27
+	breq	4f
+91:	in	r0, _SFR_IO_ADDR(SPSR)
+	sbrs	r0, SPIF
+	rjmp	91b
+	in	r0, _SFR_IO_ADDR(SPDR)
+	out	_SFR_IO_ADDR(SPDR), r26 ; the next byte, while this one is stored
+	st	Z+, r0
+	rjmp	3b
+4:	in	r0, _SFR_IO_ADDR(SPSR)
+	sbrs	r0, SPIF
+	rjmp	4b
+	in	r0, _SFR_IO_ADDR(SPDR)
+	st	Z+, r0
+	ret
+5:	ld	r26, Z+                 ; write
+	out	_SFR_IO_ADDR(SPDR), r26
+6:	dec	r27
+	breq	7f
+	ld	r26, Z+                 ; the next byte, while this one is sent
+92:	in	r0, _SFR_IO_ADDR(SPSR)
+	sbrs	r0, SPIF
+	rjmp	92b
+	out	_SFR_IO_ADDR(SPDR), r26 ; (SPSR read with SPIF set, then SPDR: SPIF cleared)
+	rjmp	6b
+7:	in	r0, _SFR_IO_ADDR(SPSR)
+	sbrs	r0, SPIF
+	rjmp	7b
+	in	r0, _SFR_IO_ADDR(SPDR)
+	ret
+
+10:	push	r11
 	push	r12
 	push	r13
 	push	r14
@@ -78,27 +130,11 @@ xram_write:
 	adc	r13, r1
 	adc	r14, r1
 	adc	r15, r1
-	ldi	r26, 0xFF
-	sbrs	r11, 0                  ; (command 3: read, 2: write)
-	rjmp	5f
-4:	out	_SFR_IO_ADDR(SPDR), r26 ; read m bytes
-91:	in	r0, _SFR_IO_ADDR(SPSR)
-	sbrs	r0, SPIF
-	rjmp	91b
-	in	r0, _SFR_IO_ADDR(SPDR)
-	st	Y+, r0
-	dec	r27
-	brne	4b
-	rjmp	6f
-5:	ld	r26, Y+                 ; write m bytes
-	out	_SFR_IO_ADDR(SPDR), r26
-92:	in	r0, _SFR_IO_ADDR(SPSR)
-	sbrs	r0, SPIF
-	rjmp	92b
-	in	r0, _SFR_IO_ADDR(SPDR)
-	dec	r27
-	brne	5b
-6:	sbi	_SFR_IO_ADDR(PORTA), PA4
+	movw	r30, r28
+	mov	r19, r11
+	rcall	xfer
+	movw	r28, r30
+	sbi	_SFR_IO_ADDR(PORTA), PA4
 	clr	r1
 	call	spi_unlock              ; (runs the copy task if it waited)
 	rjmp	2b

@@ -1,8 +1,8 @@
 diff --git a/cu_avr.c b/cu_avr.c
-index bf33a13..9698011 100644
+index 469a8af..323eb22 100644
 --- a/cu_avr.c
 +++ b/cu_avr.c
-@@ -728,8 +728,18 @@ static void cu_avr_hwexec(void)
+@@ -879,8 +879,18 @@ static void cu_avr_hwexec(void)
  /*
  ** Enters requested interrupt (event_it_enter must be true)
  */
@@ -21,16 +21,16 @@ index bf33a13..9698011 100644
   auint tmp;
  
   event_it_enter = FALSE; /* Requested IT entry performed */
-@@ -1678,7 +1688,7 @@ auint cu_avr_run(void)
-    /* AVR-GCC uses RCALL .+0 to reserve two stack bytes, without entering
-    ** another function. Its matching POPs must not strand source Step Over. */
+@@ -2015,7 +2025,7 @@ auint cu_avr_run(void)
     if (source_op == 0x41U && ((cpu_code[profile_pc] >> 16) & 0xFFFFU) == 0U){ source_op = 0U; }
+    debug_instruction_pc=profile_pc;
+    DIAG_CALL(diagnostics_instruction(profile_pc));
 -   cu_avr_exec();       /* Note: This inlines as only this single call exists */
 +   PROF_EXEC();         /* (profiling hook when set) */
+    if(diagnostics_gate && diagnostics_pending()){ ret |= CU_BREAK; break; }
     if (cu_debug_source_step_active && cu_debug_source_step_tick(cpu_state.pc & 0x7FFFU, source_op)){
      ret |= CU_BREAK;
-    }
-@@ -1708,7 +1718,7 @@ auint cu_avr_run(void)
+@@ -2046,7 +2056,7 @@ auint cu_avr_run(void)
  #endif
    }
  #else
