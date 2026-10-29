@@ -24,6 +24,7 @@
 
 	.section .text.bg_task
 	.global	bg_task
+	.section .text.bg_task
 bg_task:
 	clr	r20                     ; (the read is not open)
 .Lloop:

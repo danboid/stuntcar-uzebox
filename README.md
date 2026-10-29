@@ -39,8 +39,12 @@ You should be able to run the 128 KB build on Uzeboxes with more SPI RAM when th
 
 ## Running
 
-Copy `scr.uze` (or `scr_64k.uze`) to the root of your Uzebox SD card, or load it in
-[**cuzebox-ex**](https://github.com/weber21w/cuzebox-ex).
+Copy `stuntcar.uze` (or `stunt64k.uze` for a 64 KB SPI RAM) to the root of your Uzebox SD card,
+or load it in [**cuzebox-ex**](https://github.com/weber21w/cuzebox-ex).
+
+If you see a red screen when trying to load SCR with cuzebox-ex then its because you have too many
+files or directories in the same folder and SCR cannot find its track data. Copy the .uze file into
+its own directory or into a dir shared with less files and it should run fine.
 
 ## Controls
 
@@ -87,12 +91,12 @@ g++ -O2 -o packrom packrom.cpp
 # 3. Build the game (128 KB SPI RAM version)
 cd stuntcar-uzebox/game
 make KERNEL_DIR=../../uzebox/kernel                     # -> scr.hex
-make uze KERNEL_DIR=../../uzebox/kernel PACKROM=../../packrom   # -> scr.uze (with the track data)
+make uze KERNEL_DIR=../../uzebox/kernel PACKROM=../../packrom   # -> stuntcar.uze (with the track data)
 
 # or build the 64 KB SPI RAM version
 make clean
 make SPIRAM=64 KERNEL_DIR=../../uzebox/kernel
-make uze SPIRAM=64 KERNEL_DIR=../../uzebox/kernel PACKROM=../../packrom
+make uze SPIRAM=64 KERNEL_DIR=../../uzebox/kernel PACKROM=../../packrom   # -> stunt64k.uze
 ```
 
 `KERNEL_DIR` defaults to `../../uzebox/kernel`: in the layout above, `uzebox/` is next to
@@ -106,15 +110,16 @@ only the program part (its size is in the header) and ignores the rest. At start
 searches the SD card's root directory - the bootloader starts games from there only - for a
 `.UZE` file larger than any game alone can be (the 512-byte header plus the 61,440 bytes below
 the bootloader) and a whole number of sectors, reads its last 41 sectors and checks that they
-begin with `SCR_DATA_SIG` (the data's first bytes, in `port/scr_trackdata.h`). Its name does not
-matter; with several such files the first is used (every version of the game holds the same
-data). No such file: the red start-up screen.
+begin with `SCR_DATA_SIG` (the data's first bytes, in `port/scr_trackdata.h`); another game's
+appended data there, the search goes on. Its name does not matter; with several such files the
+first is used (every version of the game holds the same data). No such file: the red start-up
+screen.
 
 **Flash limit.** The Makefile stops at 61,352 bytes (0xEFA8), not at the bootloader's 61,440:
 a build whose initialized data - copied from the end of the image at start-up, the pictures'
 SPI RAM addresses among it - reached 0xEFB8-0xEFDA lost it on an Uzebox Omega (a stable
 picture for half a second, then a rolling one), while one ending at 0xEFA8 ran. This version:
-61,298 bytes with avr-gcc 16.2.0 (61,268 for the 64 KB build), 60,976 with 7.3.0; 5.x no longer
+61,346 bytes with avr-gcc 16.2.0 (61,318 for the 64 KB build), 61,016 with 7.3.0; 5.x no longer
 fits.
 
 The game is compiled with `-fno-gcse -fno-move-loop-invariants`, which make the AVR code ~1.2 KB
@@ -283,7 +288,7 @@ includes `SCR_DATA_SIG`, the data's first bytes, by which the game recognizes it
 * One sound voice: during an effect the engine note is silent.
 * About 7 display frames per game tick while racing (the Amiga version ran at 6). Views of much
   of a track at once - Roller Coaster in particular - are the slowest.
-* Flash: ~50 bytes free with avr-gcc 16.2.0 (~375 with 7.3.0), below the 61,352-byte limit.
+* Flash: ~5 bytes free with avr-gcc 16.2.0 (~330 with 7.3.0), below the 61,352-byte limit.
 
 ## Credits and licensing
 

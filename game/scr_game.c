@@ -310,6 +310,20 @@ static void __attribute__((noinline)) stack_free(void)
 
 int main(void)
 {
+	/* cuzebox-ex emulator hints (the format of its extras/cuzebox_hex_hints.h: an RJMP over four
+	 * marker words - on hardware just a 2-cycle jump): fast SD card timing and the SPI RAM size.
+	 * A directly loaded .uze carries these in its header; started from the emulated bootloader's
+	 * menu the game would otherwise get the emulator's normal SD timing, which Bootloader 5's SD
+	 * init cannot wait out with mode 19 running (the red start-up screen). Before any SPI use. */
+#define EMU_HINT(c, v) __asm__ __volatile__("rjmp 1f\n\t.word 0x4355, 0x4848, %0, %1\n1:" \
+		: : "n" ((c) | (v) << 8), "n" (((c) | (v) << 8) ^ 0xFFFF))
+	EMU_HINT(0x83, 3);                                 /* SD timing: fast */
+#ifdef SCR_SPIRAM_64K
+	EMU_HINT(0x80, 1);                                 /* SPI RAM: one 64 KB bank */
+#else
+	EMU_HINT(0x80, 2);                                 /* SPI RAM: two 64 KB banks */
+#endif
+
 	uint8_t back, track = TRACK, over = 0;
 #ifdef AUTOPILOT
 	uint8_t state = STATE_RACE;

@@ -114,16 +114,18 @@ FASTMATH := $(if $(filter 1,$(FASTDIV)),fastmath_fast.S,fastmath.S)
 fastmath.o: $(SRC)/$(FASTMATH)
 	avr-gcc -mmcu=$(MCU) $(SPIRDEF) -x assembler-with-cpp -c $< -o $@
 clean:
-	rm -f *.o scr.elf scr.hex scr.map scr.uze gameinfo_64k.properties
+	rm -f *.o scr.elf scr.hex scr.map stuntcar.uze stunt64k.uze gameinfo_64k.properties
 
 .PHONY: clean uze
 
 # distributable ROM: make uze PACKROM=/path/to/packrom (packrom 1.6+, current Uzebox master:
 # it writes the gameinfo.properties keys spiram= (64 KB banks) and sd= (SD timing hint))
 PACKROM ?= packrom
+# the .uze: stuntcar.uze (128 KB SPI RAM) or stunt64k.uze (SPIRAM=64)
+UZE := $(if $(filter 64,$(SPIRAM)),stunt64k.uze,stuntcar.uze)
 uze: scr.hex
 	$(if $(filter 64,$(SPIRAM)),sed 's/^spiram=.*/spiram=1/' gameinfo.properties > gameinfo_64k.properties &&) \
-	$(PACKROM) scr.hex scr.uze $(if $(filter 64,$(SPIRAM)),gameinfo_64k.properties,gameinfo.properties)
+	$(PACKROM) scr.hex $(UZE) $(if $(filter 64,$(SPIRAM)),gameinfo_64k.properties,gameinfo.properties)
 	@# the track data at the end (the game finds it there): padding to a whole sector, SCRTRK.BIN
-	n=$$(wc -c < scr.uze); dd if=/dev/zero bs=1 count=$$(( (512 - n % 512) % 512 )) 2>/dev/null >> scr.uze
-	cat $(ROOT)/data/SCRTRK.BIN >> scr.uze
+	n=$$(wc -c < $(UZE)); dd if=/dev/zero bs=1 count=$$(( (512 - n % 512) % 512 )) 2>/dev/null >> $(UZE)
+	cat $(ROOT)/data/SCRTRK.BIN >> $(UZE)
