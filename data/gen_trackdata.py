@@ -72,7 +72,7 @@ for name, data in parts:
     blob += data
 while len(blob) % 512: blob.append(0)
 o.append(f'#define SCR_DATA_SIZE {len(blob)}')
-o.append('#define SCR_DATA_SIG ' + ','.join(str(x) for x in blob[:6]) + '     /* its first bytes: the track data at the end of a .uze */')
+o.append(f'#define SCR_DATA_SUM 0x{sum(blob) & 0xFFFF:04X}     /* the 16-bit sum of its bytes: checked when loaded from the .uze */')
 open('SCRTRK.BIN', 'wb').write(blob)
 o.append(f'#define SCR_TRACK_SLOT {SLOT}')
 open('scr_trackdata.h', 'w').write('\n'.join(o) + '\n')

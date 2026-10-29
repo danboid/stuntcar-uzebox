@@ -74,10 +74,10 @@ static uint8_t bl_present(void)                             /* signature B0 07 1
  * header, the program, padding to a whole sector, then the 41 sectors of SCRTRK.BIN). The
  * bootloader starts games from the root directory only, so the root is searched for a .UZE larger
  * than any game alone can be (the 512-byte header and the 61,440 bytes below the bootloader) and
- * a whole number of sectors - its data checked: SCR_DATA_SIG (another game's appended data: the
- * next such file). (The sdBase path below, for
+ * a whole number of sectors - its data checked against SCR_DATA_SUM, the sum of its bytes
+ * (another game's appended data, or a damaged copy - the end of a file not yet fully written
+ * to the card, say: the next such file). (The sdBase path below, for
  * emulator tests without the bootloader, reads a SCRTRK.BIN.) */
-static const uint8_t data_sig[] PROGMEM = { SCR_DATA_SIG };
 __attribute__((noinline)) static uint8_t bl_next(bl_sds_t *s) { return BL(0xF024, bl_fn_t)(s); }   /* FAT_Next_Sector */
 __attribute__((noinline)) static uint8_t bl_read(bl_sds_t *s) { return BL(0xF020, bl_fn_t)(s); }   /* FAT_Read_Sector */
 /* search the root directory with *s and load: 1 if done */
@@ -107,13 +107,17 @@ again:
 found:
 	BL(0xF02A, bl_sel_t)(s, BL(0xF02C, bl_clus_t)(s, e));    /* FAT_Select_Cluster (its first) */
 	for (; skip; skip--) if (bl_next(s)) return 0;
+	uint16_t sum = 0;
 	for (uint16_t a = 0; ; a += 512) {                      /* (XRAM_TRACKS is 0, the data < 64 KB) */
 		if (bl_read(s)) return 0;
-		if (!a && memcmp_P(buf, data_sig, sizeof(data_sig))) { rej++; goto again; }   /* another game's data */
+		for (uint16_t i = 0; i < 512; i++) sum += buf[i];
 		xram_write(a, buf, 512);
-		if (a == SCR_DATA_SIZE - 512) return 1;
+		if (a == SCR_DATA_SIZE - 512) break;
 		if (bl_next(s)) return 0;
 	}
+	if (sum == SCR_DATA_SUM) return 1;
+	rej++;                                                   /* another game's data, or a damaged copy */
+	goto again;
 }
 int scr_load_tracks(void)
 {

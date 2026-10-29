@@ -56,7 +56,7 @@ sat:	ldi	r24, 0xFF
 
 /* uint16 core: (r25:r24:r23:r22) / (r21:r20) with r25:r24 < d.
  * quotient -> r23:r22, remainder -> r25:r24. Uses r18. udiv_n: r18 quotient bits (8 or 16),
- * four per pass of the loop (a full unroll is FASTDIV's: ~300 bytes more) */
+ * two per pass of the loop (a full unroll is FASTDIV's: ~300 bytes more) */
 	.macro	QSTEP
 	lsl	r22
 	rol	r23
@@ -76,9 +76,7 @@ udiv_core:
 udiv_n:
 	QSTEP
 	QSTEP
-	QSTEP
-	QSTEP
-	subi	r18, 4
+	subi	r18, 2
 	brne	udiv_n
 	ret
 

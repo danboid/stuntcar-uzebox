@@ -109,18 +109,19 @@ program, padding to a whole 512-byte sector, then the data's 41 sectors. The boo
 only the program part (its size is in the header) and ignores the rest. At start-up the game
 searches the SD card's root directory - the bootloader starts games from there only - for a
 `.UZE` file larger than any game alone can be (the 512-byte header plus the 61,440 bytes below
-the bootloader) and a whole number of sectors, reads its last 41 sectors and checks that they
-begin with `SCR_DATA_SIG` (the data's first bytes, in `port/scr_trackdata.h`); another game's
-appended data there, the search goes on. Its name does not matter; with several such files the
-first is used (every version of the game holds the same data). No such file: the red start-up
-screen.
+the bootloader) and a whole number of sectors, reads its last 41 sectors and checks the sum of
+their bytes against `SCR_DATA_SUM` (in `port/scr_trackdata.h`); another game's appended data
+there, or a damaged copy (one not fully written to the card, say), and the search goes on. Its
+name does not matter; with several such files the first good one is used (every version of the
+game holds the same data). No such file: the red start-up screen.
 
-**Flash limit.** The Makefile stops at 61,352 bytes (0xEFA8), not at the bootloader's 61,440:
-a build whose initialized data - copied from the end of the image at start-up, the pictures'
-SPI RAM addresses among it - reached 0xEFB8-0xEFDA lost it on an Uzebox Omega (a stable
-picture for half a second, then a rolling one), while one ending at 0xEFA8 ran. This version:
-61,346 bytes with avr-gcc 16.2.0 (61,318 for the 64 KB build), 61,016 with 7.3.0; 5.x no longer
-fits.
+**Flash limit.** The Makefile stops at 61,298 bytes (0xEF72), not at the bootloader's 61,440:
+the initialized data is copied from the end of the image at start-up, and on an Uzebox Omega
+builds whose image ended later lost some of it - at 0xEFDA the picture rolled at once (the
+pictures' SPI RAM addresses), at 0xEFA2 the game froze after a few seconds (the sound effects'
+table, it seems) - while one ending at 0xEF72 has run well. The cause is not in the published
+bootloader source. This version: 61,264 bytes with avr-gcc 16.2.0 (61,246 for the 64 KB build),
+61,026 with 7.3.0; 5.x no longer fits.
 
 The game is compiled with `-fno-gcse -fno-move-loop-invariants`, which make the AVR code ~1.2 KB
 smaller at the same speed. With avr-gcc 15 or later the Makefile also adds `-mno-fuse-move`
@@ -136,7 +137,7 @@ flags, and leaves out the unrolled division.
 | `EXTRA=-DDEBUG_STATS FLASH_LIMIT=65536` | boot stage, phase, counters and stack painting in RAM (too large for the bootloader: emulator only) |
 | `SPIRAM=64` | the build for a 64 KB SPI RAM (23LC512), ~4% faster (see "128 KB or 64 KB SPI RAM") |
 | `FAST=0` | the C edge setup that sorts on insertion (default `FAST=1`: edge lists sorted once per picture, edge setup in assembly) |
-| `FASTDIV=1` / `0` | the fully unrolled 32/16 division (~300 bytes more, ~2% faster) or the compact one, its loop unrolled four times. Default: 1 with avr-gcc 7.x-14.x, 0 with 15+ (it does not fit) |
+| `FASTDIV=1` / `0` | the fully unrolled 32/16 division (~300 bytes more, ~2% faster) or the compact one, its loop unrolled twice. Default: 1 with avr-gcc 7.x-14.x, 0 with 15+ (it does not fit) |
 | `TRASM=0` | the vertex transform in C (~100 bytes more and ~1% slower than the default assembly) |
 | `SDBASE=sdBase.o EXTRA=-DSCR_SDBASE` | SD loading without the v5 bootloader, from a `SCRTRK.BIN` (standard-capacity FAT16 cards; the emulator test runners) |
 
@@ -281,14 +282,15 @@ cd data && python3 gen_trackdata.py source/orig_tracks.json source/Tracks
 
 `source/orig_tracks.json` is dumped from the remake (`tests/reference/build/scr_dump`);
 `source/Tracks/*.bin` are the remake's track files. Both regenerate byte-identically (the header
-includes `SCR_DATA_SIG`, the data's first bytes, by which the game recognizes it in a `.uze`).
+includes `SCR_DATA_SUM`, the 16-bit sum of the data's bytes, by which the game checks it in a
+`.uze`).
 
 ## Known limitations
 
 * One sound voice: during an effect the engine note is silent.
 * About 7 display frames per game tick while racing (the Amiga version ran at 6). Views of much
   of a track at once - Roller Coaster in particular - are the slowest.
-* Flash: ~5 bytes free with avr-gcc 16.2.0 (~330 with 7.3.0), below the 61,352-byte limit.
+* Flash: 34 bytes free with avr-gcc 16.2.0 (272 with 7.3.0), below the 61,298-byte limit.
 
 ## Credits and licensing
 

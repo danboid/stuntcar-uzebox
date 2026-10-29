@@ -131,14 +131,13 @@ bg_task:
 	ret
 2:	ldi	r27, hi8(ring)
 	ldi	r25, 126 << 1           ; 128 + 128 pixels, end of line
-	st	X, r24
+	ldi	r22, 2
+4:	st	X, r24
 	inc	r26
 	st	X, r25
 	inc	r26
-	st	X, r24
-	inc	r26
-	st	X, r25
-	inc	r26
+	dec	r22
+	brne	4b
 	ldi	r25, 1
 	st	X, r25
 	inc	r26

@@ -28,11 +28,11 @@ SPIRDEF := $(if $(filter 64,$(SPIRAM)),-DSCR_SPIRAM_64K)
 FAST    ?= 1
 FASTDIV ?= $(if $(filter 5,$(GCCMAJOR)),0,$(if $(shell test 0$(GCCMAJOR) -ge 15 && echo 1),0,1))
 TRASM   ?= 1
-# flash for the game, below the bootloader (0xF000): up to 0xEFA8 - a build whose initialized data
-# (copied from the end of the image at start-up) reached 0xEFB8-0xEFDA lost it on an Uzebox Omega
-# (the pictures' SPI RAM addresses among it: the picture rolled); one ending at 0xEFA8 ran
-# (65536: emulator-only builds)
-FLASH_LIMIT ?= 61352
+# flash for the game, below the bootloader (0xF000): up to 0xEF72, where a build's image ended
+# that has run well on an Uzebox Omega. Builds ending later lost initialized data there (copied
+# from the end of the image at start-up): at 0xEFDA the picture rolled at once (the pictures' SPI
+# RAM addresses), at 0xEFA2 it froze after a few seconds (65536: emulator-only builds)
+FLASH_LIMIT ?= 61298
 KOPTS  := -DVIDEO_MODE=19 -DSOUND_MIXER=0 -DINTRO_LOGO=0 -DENABLE_MIXER=0 \
           -DMIX_BANK_SIZE=96 -DMIX_END -DBGTASK -DRING_SECTION -DRESYNC -DNO_EEPROM_FORMAT=1 $(EXTRA)
 KCFLAGS := -mmcu=$(MCU) -DF_CPU=28636360UL -Os -std=gnu99 -fsigned-char -ffunction-sections \

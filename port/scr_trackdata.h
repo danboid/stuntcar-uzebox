@@ -13,5 +13,5 @@ static const uint8_t scr_tmpl_xzoff[11] PROGMEM = {0,18,36,36,54,82,82,102,122,1
 #define SCR_T_SIN 0x04D02UL     /* 514 bytes */
 #define SCR_T_ATAN 0x04F04UL     /* 514 bytes */
 #define SCR_DATA_SIZE 20992
-#define SCR_DATA_SIG 44,15,34,47,142,1     /* its first bytes: the track data at the end of a .uze */
+#define SCR_DATA_SUM 0x2E92     /* the 16-bit sum of its bytes: checked when loaded from the .uze */
 #define SCR_TRACK_SLOT 2048
