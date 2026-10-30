@@ -75,8 +75,8 @@ displayed on the track selection screen. One brown square = track #1 etc.
 
 ## Building
 
-Building SCR requires avr-gcc 7.3 or later; 16.2 is recommended (the fastest: the release
-builds use it).
+Building SCR requires avr-gcc 7.3 or later; 16.2 is recommended (the fastest, ~0.7% faster than
+14.2: both fit).
 
 ```sh
 # 1. Prepare the Uzebox kernel with the patch (registers video mode 19; sound buffer size)
@@ -140,16 +140,18 @@ the initialized data is copied from the end of the image at start-up, and on an 
 builds whose image ended later lost some of it - at 0xEFDA the picture rolled at once (the
 pictures' SPI RAM addresses), at 0xEFA2 the game froze after a few seconds (the sound effects'
 table, it seems) - while one ending at 0xEF72 has run well. The cause is not in the published
-bootloader source. This version, with avr-gcc 14.2.0: 61,012 bytes (60,782 with `SAMPLES=0`,
-60,764 for the 64 KB build); 5.x no longer fits.
+bootloader source. This version: 61,176 bytes with avr-gcc 16.2.0 (60,944 for the 64 KB build),
+61,156 with 14.2.0 (60,922); 5.x no longer fits.
 
 The game is compiled with `-fno-gcse -fno-move-loop-invariants`, which make the AVR code ~1.2 KB
 smaller at the same speed. With avr-gcc 15 or later the Makefile also adds `-mno-fuse-move`
 (16.2's fuse-move pass crashes - an internal compiler error - on this code) and three size
 flags, and leaves out the unrolled division. The race logic (`Car_Behaviour`,
 `Opponent_Behaviour`, `harness`: ~10% of the CPU time) is built with further size flags
-(`PHYS_OPT`): 444 bytes smaller with 14.2.0, the game no slower; the logic tests build it the
-same way (`make -s print-PHYS_OPT`).
+(`PHYS_OPT`): 444 bytes smaller with 14.2.0, the game no slower; with 15 or later also
+`-mno-split-bit-shift -fno-reorder-blocks` (16.2 splits the logic's 4-byte shifts into a byte
+and a bit shift: faster, but ~320 bytes more - without these 16.2 does not fit, ~0.7% faster
+still). The logic tests build it the same way (`make -s print-PHYS_OPT`).
 
 ## Build options (`make ... EXTRA="..."`)
 
@@ -325,8 +327,8 @@ includes `SCR_DATA_SUM`, the 16-bit sum of the data's bytes, by which the game c
 
 * About 7 display frames per game tick while racing (the Amiga version ran at 6). Views of much
   of a track at once - Roller Coaster in particular - are the slowest.
-* Flash: 286 bytes free with avr-gcc 14.2.0 (the 128 KB build with samples), below the
-  61,298-byte limit.
+* Flash: 122 bytes free with avr-gcc 16.2.0, 142 with 14.2.0 (the 128 KB build with samples),
+  below the 61,298-byte limit.
 
 ## Credits and licensing
 

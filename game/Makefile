@@ -69,13 +69,17 @@ endif
 # (internal compiler error) on this code, and it needs the size flags to fit. (5.x: no longer fits)
 ifeq ($(GCCNEW),1)
 SIZEOPT  += -mno-fuse-move -fno-tree-loop-optimize -fno-inline-small-functions -fno-split-wide-types
+# and in the race logic no split shifts of 4-byte values (a byte shift and a bit shift: faster, but
+# the logic's long arithmetic grew ~320 bytes) nor block reordering: 16.2 fits, the game ~0.7%
+# faster than with 14.2 (~0.7% slower than 16.2 without them, which does not fit)
+PHYS_NEW := -mno-split-bit-shift -fno-reorder-blocks
 endif
 GOPT   := $(DBG) -mmcu=$(MCU) -Os -ffunction-sections -fdata-sections -flto -ffixed-r5 -mcall-prologues -mstrict-X \
           $(SIZEOPT) $(GOPT_EXTRA)
 # the race logic (Car_Behaviour, Opponent_Behaviour, harness: ~10% of the CPU time) is built for
 # size: 444 bytes smaller with avr-gcc 14.2, the game no slower (its own ~4% - tests/logic_*.sh)
 PHYS_OPT ?= -fno-split-wide-types -fno-tree-loop-optimize -fno-inline-small-functions -fno-ssa-phiopt \
-	  -fno-tree-forwprop -fno-early-inlining -fipa-pta
+	  -fno-tree-forwprop -fno-early-inlining -fipa-pta $(PHYS_NEW)
 GCFLAGS := $(GOPT) -std=gnu99 $(SPIRDEF) $(SFXDEF) -DTRACK=$(TRACK) $(KOPTS) -I$(KERNEL_DIR) -I$(ROOT)
 GXXFLAGS := $(GOPT) -std=gnu++11 -fno-exceptions -fno-rtti -fno-threadsafe-statics -Dlinux -DLINUX $(SFXDEF) \
           -DSCR_GAME -DSCR_XRAM_OUT -DSCR_WS_EXTERN -DSCR_XRAM_ASM -DSCR_CAM3_ASM -DSCR_CAM_TRIG -DSCR_MAX_EDGES=254 $(SPIRDEF) $(if $(filter 1,$(FAST)),-DSCR_FAST_EDGES -DSCR_EMIT_ASM -DSCR_EMITCLIP_ASM) -DSCR_CLIP_ASM -DSCR_ROWS_ASM -DSCR_TRIG_ASM $(if $(filter 1,$(TRASM)),-DSCR_TRANSFORM_ASM -DSCR_CARV_ASM -DSCR_LOADROWS_ASM) $(EXTRA) -I$(SRC) -I$(MODELS) -w
@@ -92,6 +96,8 @@ scr.hex: scr.elf
 	@n=$$(avr-size $< | awk 'NR==2{print $$1+$$2}'); if [ $$n -gt $(FLASH_LIMIT) ]; then \
 		echo "ERROR: $$n bytes of flash: more than the $(FLASH_LIMIT) below the bootloader"; rm -f $@; exit 1; fi
 $(KOBJS) $(GOBJS): $(KSTAMP)
+# (the kernel's video core includes video mode 19: make must know, or an edit of it is not built)
+uzeboxVideoEngineCore.o: $(wildcard $(ROOT)/videoMode19/videoMode19.*)
 ifdef KSTAMP
 # (the copy's sources come from the stamp's recipe: without this rule a clean build found no
 # rule for the kernel objects - their sources did not exist yet - and failed at the link)
