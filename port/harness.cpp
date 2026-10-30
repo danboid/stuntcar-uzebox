@@ -62,19 +62,24 @@ long log_state[16];
 
 
 /* ---- the race, as StuntCarRacer.cpp runs it (shared by this harness and the game) */
+#ifdef SCR_ENGINE_SAMPLES                       /* (Car_Behaviour.cpp, FramesWheelsEngine) */
 static IDirectSoundBuffer8 snd_dummy[16];
+static IDirectSoundBuffer8 *sndp[16];
+#else
+#define sndp NULL
+#endif
 /* the remake's effect buffers: one object each, so the game can tell which effect is played */
 IDirectSoundBuffer8 scr_sfx_obj[6];
 IDirectSoundBuffer8 *GroundedSoundBuffer = &scr_sfx_obj[0], *OffRoadSoundBuffer = &scr_sfx_obj[1],
                     *WreckSoundBuffer = &scr_sfx_obj[2], *SmashSoundBuffer = &scr_sfx_obj[3],
                     *CreakSoundBuffer = &scr_sfx_obj[4], *HitCarSoundBuffer = &scr_sfx_obj[5];
 __attribute__((weak)) void scr_sfx_play(const IDirectSoundBuffer8 *b) { (void)b; }   /* (the game has its own) */
-static IDirectSoundBuffer8 *sndp[16];
 
 int race_start(long track)                     /* the track data must be loaded (scr_load_tracks) */
 {
-	long g;
-	for (g = 0; g < 16; g++) sndp[g] = &snd_dummy[g];
+#ifdef SCR_ENGINE_SAMPLES
+	for (long g = 0; g < 16; g++) sndp[g] = &snd_dummy[g];
+#endif
 	CreateSinCosTable();
 	if (!ConvertAmigaTrack(track)) return 0;
 	bNewGame = TRUE;  ResetPlayer();           /* track preview */

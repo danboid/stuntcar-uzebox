@@ -88,7 +88,7 @@ cd uzebox && git checkout 384ceb3 && git apply ../stuntcar-uzebox/kernel/uzebox_
 git -C uzebox show origin/master:tools/packrom/packrom.cpp > packrom.cpp
 g++ -O2 -o packrom packrom.cpp
 
-# 3. Build the game (128 KB SPI RAM version)
+# 3. Build the game (128 KB SPI RAM version; its sound effect samples need python3 - or SAMPLES=0)
 cd stuntcar-uzebox/game
 make KERNEL_DIR=../../uzebox/kernel                     # -> scr.hex
 make uze KERNEL_DIR=../../uzebox/kernel PACKROM=../../packrom   # -> stuntcar.uze (with the track data)
@@ -99,34 +99,57 @@ make SPIRAM=64 KERNEL_DIR=../../uzebox/kernel
 make uze SPIRAM=64 KERNEL_DIR=../../uzebox/kernel PACKROM=../../packrom   # -> stunt64k.uze
 ```
 
-`KERNEL_DIR` defaults to `../../uzebox/kernel`: in the layout above, `uzebox/` is next to
+Without `KERNEL_DIR`, the Makefile builds against its own patched copy of the kernel
+(`game/.kernel/`: `../../uzebox/kernel` with the patch applied, remade when either changes), so
+step 1's `git apply` can be skipped and the kernel checkout stays untouched; `UZEBOX=` points
+at another checkout. Without `PACKROM` and with no `packrom` on the PATH, it builds packrom from
+that checkout's `tools/packrom` (`game/.tools/`). In the layout above, `uzebox/` is next to
 `stuntcar-uzebox/`. The game builds with `-DVIDEO_MODE=19`; the kernel finds `videoMode19/`
 through the include path (`-I` the package root), so nothing has to be copied into the kernel
 tree. Run `make clean` after changing any build option: make does not notice a changed `EXTRA`.
 
-`make uze` appends the track data (`data/SCRTRK.BIN`) to the `.uze`: after packrom's header and
-program, padding to a whole 512-byte sector, then the data's 41 sectors. The bootloader programs
-only the program part (its size is in the header) and ignores the rest. At start-up the game
-searches the SD card's root directory - the bootloader starts games from there only - for a
-`.UZE` file larger than any game alone can be (the 512-byte header plus the 61,440 bytes below
-the bootloader) and a whole number of sectors, reads its last 41 sectors and checks the sum of
-their bytes against `SCR_DATA_SUM` (in `port/scr_trackdata.h`); another game's appended data
-there, or a damaged copy (one not fully written to the card, say), and the search goes on. Its
-name does not matter; with several such files the first good one is used (every version of the
-game holds the same data). No such file: the red start-up screen.
+**Debugging** (the gdb emulator
+[cuzebox-esp8266-gdb](https://github.com/Uzebox/uzebox-esp8266-gdb)): `make debug BOOTHEX=...`
+writes `game/debug/`: the game with
+Bootloader 5 merged in at 0xF000 (the game reads its track data through the bootloader's SD
+functions) and `card/`, the emulated SD card holding just `stuntcar.uze`. Every build carries
+debug information (`-g`; its only effect on the code is a dead `ret` after two tail calls).
+
+`make uze` stores the track data (`data/SCRTRK.BIN`) in the `.uze` after packrom's header and
+program, from the next whole 512-byte sector: its 41 sectors, then in 128 KB builds the sound
+effect samples (`scrsfx.bin`, made from `sounds/` - see below - in whole sectors). The
+bootloader programs only the program part (its size is in the header) and ignores the rest. At
+start-up the game searches the SD card's root directory - the bootloader starts games from there
+only - for a `.UZE` file larger than any game alone can be (the 512-byte header plus the 61,440
+bytes below the bootloader) and a whole number of sectors, finds the data after the program (from
+the program's size in the header), checks the sum of the 41 sectors' bytes against
+`SCR_DATA_SUM` (in `port/scr_trackdata.h`) and loads everything after the program into SPI RAM
+from address 0 (the samples from 0x5200); another game's appended data there, or a damaged copy
+(one not fully written to the card, say), and the search goes on. Its name does not matter; with
+several such files the first good one is used. No such file: the red start-up screen.
+
+**Sound effect samples** (128 KB builds): `sounds/grounded.wav`, `offroad.wav`, `wreck.wav`,
+`smash.wav`, `creak.wav`, `hitcar.wav` - any sample rate, bit depth, length (60,928 bytes in all
+at 7,867 Hz, about 7.7 s: `tools/mksfx.py` says if they do not fit), each one converted to 8-bit
+mono at the mixer's rate, trimmed of near-silence and normalised; an effect without a `.wav` gets
+the noise burst of the builds without samples (`sounds/README.md`). `SAMPLES=0`: the noise
+bursts in a 128 KB build too; the 64 KB build has no room for samples.
 
 **Flash limit.** The Makefile stops at 61,298 bytes (0xEF72), not at the bootloader's 61,440:
 the initialized data is copied from the end of the image at start-up, and on an Uzebox Omega
 builds whose image ended later lost some of it - at 0xEFDA the picture rolled at once (the
 pictures' SPI RAM addresses), at 0xEFA2 the game froze after a few seconds (the sound effects'
 table, it seems) - while one ending at 0xEF72 has run well. The cause is not in the published
-bootloader source. This version: 61,264 bytes with avr-gcc 16.2.0 (61,246 for the 64 KB build),
-61,026 with 7.3.0; 5.x no longer fits.
+bootloader source. This version, with avr-gcc 14.2.0: 61,012 bytes (60,782 with `SAMPLES=0`,
+60,764 for the 64 KB build); 5.x no longer fits.
 
 The game is compiled with `-fno-gcse -fno-move-loop-invariants`, which make the AVR code ~1.2 KB
 smaller at the same speed. With avr-gcc 15 or later the Makefile also adds `-mno-fuse-move`
 (16.2's fuse-move pass crashes - an internal compiler error - on this code) and three size
-flags, and leaves out the unrolled division.
+flags, and leaves out the unrolled division. The race logic (`Car_Behaviour`,
+`Opponent_Behaviour`, `harness`: ~10% of the CPU time) is built with further size flags
+(`PHYS_OPT`): 444 bytes smaller with 14.2.0, the game no slower; the logic tests build it the
+same way (`make -s print-PHYS_OPT`).
 
 ## Build options (`make ... EXTRA="..."`)
 
@@ -139,21 +162,27 @@ flags, and leaves out the unrolled division.
 | `FAST=0` | the C edge setup that sorts on insertion (default `FAST=1`: edge lists sorted once per picture, edge setup in assembly) |
 | `FASTDIV=1` / `0` | the fully unrolled 32/16 division (~300 bytes more, ~2% faster) or the compact one, its loop unrolled twice. Default: 1 with avr-gcc 7.x-14.x, 0 with 15+ (it does not fit) |
 | `TRASM=0` | the vertex transform in C (~100 bytes more and ~1% slower than the default assembly) |
-| `SDBASE=sdBase.o EXTRA=-DSCR_SDBASE` | SD loading without the v5 bootloader, from a `SCRTRK.BIN` (standard-capacity FAT16 cards; the emulator test runners) |
+| `SDBASE=sdBase.o EXTRA=-DSCR_SDBASE` | SD loading without the v5 bootloader, from a `SCRTRK.BIN` (standard-capacity FAT16 cards; the emulator test runners; no samples: the effects are silent) |
+| `EXTRA=-DSCR_NO_ENGINE` | the engine silent, the sound effects alone (to try sounds out) |
+| `SOUNDS=/path/to/folder` | the sound effects' `.wav` files from another folder than `sounds/` |
+| `SAMPLES=0` | the 128 KB build with the noise bursts of the 64 KB one instead of the sound effect samples (no python3 needed) |
 
 ## Repository contents
 
 | Folder | |
 |---|---|
-| `game/` | the main program (C), the C++ glue, fixed-address buffers, the video copy task (`scr_copy.S`), Makefile, `gameinfo.properties` |
+| `game/` | the main program (C), the C++ glue, fixed-address buffers, the video copy task (`scr_copy.S`), the engine sound mixer (`pjmix.S`), Makefile, `gameinfo.properties` |
 | `videoMode19/` | Uzebox video mode 19 (`videoMode19.s`, `.h`, `.def.h`), in the kernel's layout |
 | `modelS/` | Model S: `modelS_render.cpp/.h` (polygon renderer), `modelS_rast.S` (rasterizer), and in assembly `modelS_emit.S` (edge setup), `modelS_clip.S` (clipping), `modelS_emitclip.S` (clipped polygons to edges), `modelS_transform.S` (vertex transform), `modelS_loadrows.S` (track rows to the screen), `modelS_car.S` (the opponent's car) |
 | `port/` | the remake's race logic (ported to integer arithmetic), track module, I/O, assembly helpers |
-| `data/` | `SCRTRK.BIN` (the track data, appended to the `.uze`), its generator and sources |
+| `data/` | `SCRTRK.BIN` (the track data, stored in the `.uze`), its generator and sources |
+| `sounds/` | the sound effect samples' `.wav` files (128 KB builds; `README.md`) |
 | `kernel/uzebox_kernel.patch` | registers video mode 19 in the kernel's `defines.h`, and lets a game size the sound buffer |
-| `tests/` | PC-vs-AVR logic test; `reference/`: comparison with the original remake |
+| `tests/` | PC-vs-AVR logic test (`logic_gdb.sh`: the same on Windows); `reference/`: comparison with the original remake |
 | `tools/cuzebox/` | cycle-level test runners for cuzebox-ex (`runtest`, `prof`) |
 | `tools/api/` | a client for the cuzebox-ex TCP API and a scripted driver |
+| `tools/mksfx.py` | `.wav` files to the sound effect samples |
+| `tools/killemu.sh` | stops only the emulators whose command line holds a marker (used by `logic_gdb.sh`) |
 
 ## How it works
 
@@ -179,9 +208,15 @@ short ones (up to 32 bytes, nearly all) go in one transaction without the long p
 bookkeeping; longer ones in chunks of 32 (the copy task never waits long for the bus). The byte
 loops overlap: each byte's transfer starts as soon as the previous one is in.
 
-Sound: the engine note is a sawtooth loop written into the kernel's sample buffer; the remake's
-effects (Grounded, OffRoad, Wreck, Smash, Creak, HitCar) replace it with noise loops for a few
-ticks (one voice).
+Sound: the engine is the PJ Mixer (`game/pjmix.S`, after Uze6666's `demos/pjmixer.s`):
+three triangle waves whose pitches follow the engine revs, channels 1 + 2 ring-modulated by
+channel 3 and clipped, which gives the growl. It is mixed once per frame from the vsync
+callback, at half the line rate (each sample written twice), into the kernel's sample buffer,
+played one sample per line as a 288-byte ring: about 1.3% of the CPU. The remake's effects
+(Grounded, OffRoad, Wreck, Smash, Creak, HitCar) are added to it (the engine at a quarter of
+full scale, an effect at three quarters): in 128 KB builds samples streamed from SPI RAM in the same callback (or, if
+the main program is in an SPI transfer then, right after it, in `spi_unlock`), in 64 KB ones
+noise bursts.
 
 The crane comes when the car is stuck in front of a wall - a steep segment the road climbs,
 in this piece or the next three: in one of Stepping Stones' or Draw Bridge's pits, or Big Ramp's
@@ -249,6 +284,7 @@ passes it a copy with `spiram=1`.
 cd tests
 # PC and AVR builds of the race logic, bit-exact (needs tools/cuzebox/runtest, see below)
 sh logic_pc_vs_avr.sh 0 3000        # -> "ticks 3000: first mismatch none, mismatching 0; ..."
+sh logic_gdb.sh 0 3000              # the same on Windows (MSYS2), in the gdb emulator
 sh rows_c_vs_asm.sh                 # -> "track n: ... corners, differing 0" (track rows: C vs scr_rows.S)
 
 # the port vs the ORIGINAL remake's logic, tick for tick, all 8 tracks
@@ -287,10 +323,10 @@ includes `SCR_DATA_SUM`, the 16-bit sum of the data's bytes, by which the game c
 
 ## Known limitations
 
-* One sound voice: during an effect the engine note is silent.
 * About 7 display frames per game tick while racing (the Amiga version ran at 6). Views of much
   of a track at once - Roller Coaster in particular - are the slowest.
-* Flash: 34 bytes free with avr-gcc 16.2.0 (272 with 7.3.0), below the 61,298-byte limit.
+* Flash: 286 bytes free with avr-gcc 14.2.0 (the 128 KB build with samples), below the
+  61,298-byte limit.
 
 ## Credits and licensing
 

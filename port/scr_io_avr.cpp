@@ -70,20 +70,29 @@ static uint8_t bl_present(void)                             /* signature B0 07 1
 	       (pgm_read_byte((const void *)0xF006) > 0x50 ||    /* version: 0xF006 major/minor (0x50 = 5.0), */
 	        (pgm_read_byte((const void *)0xF006) == 0x50 && pgm_read_byte((const void *)0xF007) >= 0x06));   /* 0xF007 patch */
 }
-/* The track data -> SPI RAM: from the end of the game's own .uze (where `make uze` appends it: the
- * header, the program, padding to a whole sector, then the 41 sectors of SCRTRK.BIN). The
+/* The track data -> SPI RAM: from the game's own .uze, where `make uze` stores it after the
+ * program (the header, the program, padding to a whole sector, the 41 sectors of SCRTRK.BIN,
+ * then in 128 KB builds the sound effect samples, if any: SPI RAM from 0x5200 on). The
  * bootloader starts games from the root directory only, so the root is searched for a .UZE larger
  * than any game alone can be (the 512-byte header and the 61,440 bytes below the bootloader) and
- * a whole number of sectors - its data checked against SCR_DATA_SUM, the sum of its bytes
- * (another game's appended data, or a damaged copy - the end of a file not yet fully written
- * to the card, say: the next such file). (The sdBase path below, for
- * emulator tests without the bootloader, reads a SCRTRK.BIN.) */
+ * a whole number of sectors - the data found from the program's size in its header, checked
+ * against SCR_DATA_SUM, the sum of its bytes (another game's appended data, or a damaged copy -
+ * the end of a file not yet fully written to the card, say: the next such file). (The sdBase
+ * path below, for emulator tests without the bootloader, reads a SCRTRK.BIN: no samples.) */
+#define DATA_SECS (SCR_DATA_SIZE / 512)
+#ifdef SCR_SAMPLES
+#define MAX_SECS (0x14000 / 512)                    /* the samples: up to the renderer's buffers */
+extern "C" { uint8_t sfx_ok; }                       /* the samples are loaded */
+#else
+#define MAX_SECS DATA_SECS
+#endif
 __attribute__((noinline)) static uint8_t bl_next(bl_sds_t *s) { return BL(0xF024, bl_fn_t)(s); }   /* FAT_Next_Sector */
 __attribute__((noinline)) static uint8_t bl_read(bl_sds_t *s) { return BL(0xF020, bl_fn_t)(s); }   /* FAT_Read_Sector */
 /* search the root directory with *s and load: 1 if done */
 __attribute__((noinline)) static uint8_t load_with(bl_sds_t *s)
 {
 	uint8_t *buf = s->bufp, *e, k, skip, rej = 0, c;     /* rej: candidates whose data was not ours */
+	uint16_t secs, n, sum;
 #if XRAM_TRACKS != 0
 #error "load_with assumes the track data at SPI RAM address 0"
 #endif
@@ -98,7 +107,7 @@ again:
 			if (!e[0]) return 0;                             /* the end of the directory */
 			if (*(uint16_t *)(e + 8) == ('U' | 'Z' << 8) && !e[28] && !(mid & 1) && (mid >> 1) > 121) {   /* .UZ(E) */
 				if (c) { c--; continue; }                    /* (already tried) */
-				skip = (uint8_t)((mid >> 1) - SCR_DATA_SIZE / 512);   /* (the data: its last 41 sectors) */
+				secs = mid >> 1;                             /* (its size in sectors) */
 				goto found;
 			}
 		}
@@ -106,17 +115,26 @@ again:
 	}
 found:
 	BL(0xF02A, bl_sel_t)(s, BL(0xF02C, bl_clus_t)(s, e));    /* FAT_Select_Cluster (its first) */
+	if (bl_read(s)) return 0;                                /* the header: the program's size */
+	skip = 1 + (uint8_t)((*(uint16_t *)(buf + 8) + 511) >> 9);   /* (< 61,440: 16 bits) */
+	if (secs < skip + DATA_SECS) goto reject;
+	n = secs - skip;
+	if (n > MAX_SECS) n = MAX_SECS;
 	for (; skip; skip--) if (bl_next(s)) return 0;
-	uint16_t sum = 0;
-	for (uint16_t a = 0; ; a += 512) {                      /* (XRAM_TRACKS is 0, the data < 64 KB) */
+	sum = 0;
+	for (k = 0; ; ) {                                /* SPI RAM from 0 (XRAM_TRACKS) on */
 		if (bl_read(s)) return 0;
-		for (uint16_t i = 0; i < 512; i++) sum += buf[i];
-		xram_write(a, buf, 512);
-		if (a == SCR_DATA_SIZE - 512) break;
+		if (k < DATA_SECS) for (uint16_t i = 0; i < 512; i++) sum += buf[i];
+#ifdef SCR_SAMPLES
+		else if (k == DATA_SECS) sfx_ok = buf[0] == 'S' && buf[1] == 'X';   /* (tools/mksfx.py) */
+#endif
+		xram_write((uint32_t)k << 9, buf, 512);
+		if (++k == DATA_SECS && sum != SCR_DATA_SUM) goto reject;   /* another game's, damaged */
+		if (k == n) return 1;
 		if (bl_next(s)) return 0;
 	}
-	if (sum == SCR_DATA_SUM) return 1;
-	rej++;                                                   /* another game's data, or a damaged copy */
+reject:
+	rej++;
 	goto again;
 }
 int scr_load_tracks(void)
