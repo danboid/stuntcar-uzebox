@@ -3745,6 +3745,9 @@ extern long engineSoundPlaying;
 
 int enginePeriod = 198;
 int engineSoundIndex = -1;
+#ifdef SCR_GAME
+extern "C" int game_engine_revs(void) { return (int)engineRevs; }   /* the engine sound (scr_game.c) */
+#endif
 
 //#define	JUST_USE_ONE_SOUND
 
@@ -3779,11 +3782,7 @@ fwe3	move.w	sprite.DMA.value,dmacon+custom
 leftwheel_angle = (leftwheel_angle+front_left_wheel_speed)&WHEEL_ANGLE_MASK;
 rightwheel_angle = (leftwheel_angle+front_right_wheel_speed)&WHEEL_ANGLE_MASK;
 
-int period, index;
-DWORD freq;
 int r = engineRevs + engineRevsChange;
-static int lastEngineSoundIndex = -1;
-DWORD currentPlayCursor;
 
 	if (r < 0)
 	{
@@ -3797,6 +3796,15 @@ DWORD currentPlayCursor;
 	}
 
 	engineRevs = r;
+
+#ifdef SCR_ENGINE_SAMPLES
+	/* port: the remake's choice of engine sample and its pitch. The Uzebox's engine sound is
+	 * the PJ Mixer (game/pjmix.S), from engineRevs alone, so this is left out: it was called 6
+	 * times a tick (a 32-bit division each) for buffers that played nothing */
+int period, index;
+DWORD freq;
+static int lastEngineSoundIndex = -1;
+DWORD currentPlayCursor;
 
 	r += 378;
 	period = 4800000 / r;
@@ -3873,6 +3881,7 @@ DWORD currentPlayCursor;
 
 	// Set the frequency of the current engine sound
 	engineSoundBuffers[engineSoundIndex]->SetFrequency(freq);
+#endif
 }
 
 #ifdef TESTENGINE
@@ -4440,15 +4449,15 @@ void dbg_wheels(long *o)
 #ifdef SCR_GAME
 /* port: the sound decisions of DrawOtherGraphics / DrawDustClouds / DrawSparks (the remake calls
  * them per drawn frame; here once per tick), without their pitch calculations and rand() */
-extern "C" volatile uint8_t sfx_req;           /* scr_game.c: effect + 1 (OffRoad 2, Wreck 3) */
+extern "C" void sfx_ask(uint8_t q);            /* scr_game.c: effect + 1 (OffRoad 2, Wreck 3) */
 __attribute__((noinline)) void scr_effects_tick(void)
 {
 	if (touching_road) {
 		if (off_map_status != 0) {                       /* dust clouds: off the road */
-			if (!on_chains) sfx_req = 2;
+			if (!on_chains) sfx_ask(2);
 		} else if ((which_side_byte || wreck_wheel_height_reduction) &&   /* sparks: edge / wrecked */
 		           (unsigned long)(player_z_speed + 255) > 510)           /* and |speed| >> 8 >= 1 */
-			sfx_req = 3;
+			sfx_ask(3);
 	}
 	which_side_byte = 0;
 }

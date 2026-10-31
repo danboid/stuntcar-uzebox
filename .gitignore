@@ -1,0 +1,13 @@
+# build output (game/Makefile)
+game/*.o
+game/scr.elf
+game/scr.hex
+game/scr.map
+game/*.uze
+game/gameinfo_64k.properties
+game/.kernel/
+game/.tools/
+game/debug/
+game/scrsfx.bin
+game/sfx_preview/
+.vscode/

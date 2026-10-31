@@ -93,16 +93,23 @@
 #define V0        (43 + SLED_X)     /* TCNT1L that an lds at a handler's start would read */
 #endif
 #define K_OUT     9                 /* h_run start -> first `out` */
-#define D_LONG    12                /* that `out` -> the TCNT1L read in r_long */
+#define D_LONG    22                /* that `out` -> the TCNT1L read in r_long */
+/* r_long writes TCNT1 = K_LONG - 5x itself: the next event `delta` (= T + 5x - D_LONG - K_OUT - V0,
+ * T the TCNT1 read) after this one, as tset would - T cancels out, the read and the write being a
+ * fixed 15 cycles apart (tset's are 10: TW + 5) */
+#define K_LONG    (TW + 5 + D_LONG + K_OUT + V0)
 #ifndef LONG
 #define LONG      (26 + (SLED_X + 4) / 5)   /* runs of LONG+2 pixels and more use the timer (the
                                          fixed entry latency grows with the sled) */
 #endif
 
-	.macro SETNEXT delta, handler
-	ldi	r16, lo8(\delta)
-	ldi	r17, hi8(\delta)
-	rcall	tset
+	.macro SETNEXT delta, handler   ; tset inline, `delta` a constant: the read and the write 8
+	lds	r30, TCNT1L             ; cycles apart, tset's 10 (TW - 2). Uses r30, r31
+	lds	r31, TCNT1H
+	subi	r30, lo8((\delta) - (TW - 2))
+	sbci	r31, hi8((\delta) - (TW - 2))
+	sts	TCNT1H, r31
+	sts	TCNT1L, r30
 	ldi	r30, lo8(pm(\handler))
 	ldi	r31, hi8(pm(\handler))
 	sts	m19_ev, r30
@@ -489,51 +496,59 @@ r_long:                                 ; tau+8
 	sts	m19_rd, r30                 ; tau+8..9   save the read pointer
 	cpi	r17, 0x7F               ; tau+10  end of line?
 	breq	r_eol                   ; tau+11
-	lds	r30, TCNT1L             ; tau+12 = D_LONG
-	lds	r31, TCNT1H
-	push	r24
-	push	r25
-	subi	r17, -2                 ; x = n+2 pixels
-	mov	r24, r17
-	clr	r25
-	lsl	r24
-	rol	r25
-	lsl	r24
-	rol	r25
-	add	r24, r17
+	subi	r17, -2                 ; tau+12  x = n+2 pixels
+	mov	r30, r17                ; r31:r30 = 5x
+	clr	r31
+	lsl	r30
+	rol	r31
+	lsl	r30
+	rol	r31
 	clr	r16
-	adc	r25, r16                ; 5x
-	add	r24, r30                ; + T
-	adc	r25, r31
-	subi	r24, lo8(D_LONG + K_OUT + V0)   ; = delta
-	sbci	r25, hi8(D_LONG + K_OUT + V0)
-	movw	r16, r24
-	rcall	tset
-	lds	r16, m19_lt                 ; lt += delta  (still h_run next)
-	lds	r17, m19_lt + 1
-	add	r16, r24
-	adc	r17, r25
-	sts	m19_lt, r16
-	sts	m19_lt + 1, r17
-	rjmp	done2
+	add	r30, r17
+	adc	r31, r16
+	lds	r16, TCNT1L             ; tau+22 = D_LONG: T
+	lds	r17, TCNT1H
+	add	r16, r30                ; delta = T + 5x - (D_LONG + K_OUT + V0)
+	adc	r17, r31
+	subi	r16, lo8(D_LONG + K_OUT + V0)
+	sbci	r17, hi8(D_LONG + K_OUT + V0)
+	com	r31                     ; TCNT1 = K_LONG - 5x
+	neg	r30
+	sbci	r31, -1
+	subi	r30, lo8(-(K_LONG))
+	sbci	r31, hi8(-(K_LONG))
+	sts	TCNT1H, r31
+	sts	TCNT1L, r30             ; (15 cycles after the read)
+	lds	r30, m19_lt                 ; lt += delta  (still h_run next)
+	lds	r31, m19_lt + 1
+	add	r30, r16
+	adc	r31, r17
+	sts	m19_lt, r30
+	sts	m19_lt + 1, r31
+	rjmp	done
 
 r_eol:                                  ; the border colour was output at tau
-	push	r24
-	push	r25
-	lds	r24, m19_line               ; line doubling: rewind after the first line of a row,
-	subi	r24, RL_FIRST           ; commit after the second
-	sbrc	r24, 0
+	lds	r30, m19_line               ; line doubling: rewind after the first line of a row,
+	subi	r30, RL_FIRST           ; commit after the second
+	sbrc	r30, 0
 	rjmp	10f
 	sts	m19_rd, r5                  ; first line: replay this row
 	rjmp	11f
 10:	lds	r5, m19_rd                  ; second line: the row is consumed
-11:	lds	r24, m19_lt                 ; next sync event at 1820 after this line's
-	lds	r25, m19_lt + 1
+11:	lds	r30, m19_lt                 ; next sync event at 1820 after this line's
+	lds	r31, m19_lt + 1
 	ldi	r16, lo8(1820)
 	ldi	r17, hi8(1820)
-	sub	r16, r24
-	sbc	r17, r25
-	rcall	tset
+	sub	r16, r30
+	sbc	r17, r31
+	lds	r30, TCNT1L             ; (tset inline)
+	lds	r31, TCNT1H
+	sub	r30, r16
+	sbc	r31, r17
+	subi	r30, lo8(-(TW))
+	sbci	r31, hi8(-(TW))
+	sts	TCNT1H, r31
+	sts	TCNT1L, r30
 #ifndef M19_KERNEL
 	lds	r30, m19_line
 	cpi	r30, LINES - 1
@@ -546,7 +561,7 @@ r_eol:                                  ; the border colour was output at tau
 	ldi	r31, hi8(pm(h_hsfall))
 9:	sts	m19_ev, r30
 	sts	m19_ev + 1, r31
-	rjmp	done2
+	rjmp	done
 
 #ifdef BGTASK
 ;------------------------------------------------------------------ background task
@@ -625,7 +640,14 @@ bg_check:
 	sts	bg_active, r1           ; r1 = 0 here (C code returned)
 	pop	r1
 	pop	r0
-	rjmp	done                    ; (done restores SREG: interrupts off for its last 8 cycles)
+	pop	r17                     ; (done, but the interrupts left enabled to the end: an event
+	pop	r16                     ; due in done's last cycles - SREG restored, interrupts off -
+	pop	r30                     ; waited for them and one instruction of the main program,
+	ori	r30, 1 << SREG_I        ; and was entered a cycle or so later than the sled covers)
+	out	_SFR_IO_ADDR(SREG), r30
+	pop	r31
+	pop	r30
+	reti
 #endif
 
 done:	pop	r17
@@ -635,9 +657,6 @@ done:	pop	r17
 	pop	r31
 	pop	r30
 	reti
-done2:	pop	r25                     ; exit from paths that also used r24/r25
-	pop	r24
-	rjmp	done
 
 ;------------------------------------------------------------------ setup / producer
 #ifndef M19_KERNEL

@@ -60,7 +60,7 @@ void game_tick(unsigned int input);
 void game_render(uint32_t stream);
 extern uint8_t scr_draw_limit, scr_overflow;
 extern uint8_t scr_mute;                              /* sound off (SELECT); the renderer shows a symbol */
-uint16_t game_engine_hz(void);
+int game_engine_revs(void);
 unsigned int game_autopilot(void);
 
 volatile uint8_t front = 0xFF, pending = 0xFF;         /* picture shown / published */
@@ -125,10 +125,18 @@ static void __attribute__((noinline)) rasterize_picture(uint8_t buf)
 }
 
 /* release the SPI bus; run the task now if the line interrupt wanted it meanwhile (no cli:
- * a task started by the interrupt always finishes before this code continues) */
+ * a task started by the interrupt always finishes before this code continues) - and the
+ * sampled effect's mixing that the vsync callback left for then (sfx_late, below) */
+#ifdef SCR_SAMPLES
+static volatile uint8_t sfx_defer;
+static void sfx_late(void);
+#endif
 void spi_unlock(void)
 {
 	spi_lock = 0;
+#ifdef SCR_SAMPLES
+	if (sfx_defer) sfx_late();
+#endif
 	if (!bg_pending) return;
 	bg_pending = 0;
 	if (bg_active || !bg_enable) return;
@@ -137,55 +145,125 @@ void spi_unlock(void)
 	bg_active = 0;
 }
 
-/* ---- sound: one waveform loop of whole periods in the 256-byte sample buffer */
-extern uint8_t mix_buf[];
-extern uint8_t *volatile mix_end;
-extern volatile uint8_t mix_len;
-#define SND_BUF 192                                  /* MIX_BANK_SIZE 96 x 2: lowest note 15734/148 = 106 Hz */
-#define LINE_HZ 15734UL
-static uint16_t snd_hz;
-static void __attribute__((noinline)) sound_tone(uint16_t hz, uint8_t vol)
+/* ---- sound: the engine is the PJ Mixer (pjmix.S: three triangle waves, ring-modulated and
+ * clipped), mixed once per frame by the vsync callback into the kernel's sample buffer, played
+ * one sample per line (mode 19's snd, the kernel's own lines) as a ring of MIX_BUF_SIZE: each
+ * frame mixes from the last sample written up to the one before the playing position (~262 a
+ * frame; the ring holds MIX_BUF_SIZE - 262 more for the time the mixing takes), at half rate
+ * (each sample twice: ~6k cycles a frame). The sound effects (Grounded, OffRoad, Wreck, Smash,
+ * Creak, HitCar) are added to the engine, which pj_mix writes at a quarter of full scale for room
+ * (engine + effect * 3 / 4): samples in 128 KB builds, noise in 64 KB ones. */
+uint16_t pj_step[3];                                  /* 8.8 per mixed sample (pjmix.S) */
+uint8_t pj_v12, pj_v3;
+void pj_mix(uint8_t *dst, uint8_t pairs);
+/* engine type 0 of the PJ Mixer demo (type 1: 153, 680, 864); step = rpm + offset, per line */
+static const int16_t pj_off[3] = {102, 453, 189};
+volatile int16_t snd_target = -1;                     /* rpm (pjmixer.md units) from the main loop; < 0: silent */
+static int16_t snd_rpm;
+#define PAIRS (MIX_BUF_SIZE / 2)
+static uint8_t snd_i;                                 /* next pair of samples to mix */
+volatile uint8_t sfx_req;                            /* effect + 1, from the physics (sfx_ask) */
+/* one effect plays at a time (the remake had a sound buffer each), so they have priorities: a
+ * tick's requests keep the highest, and a playing effect gives way only to one as high - Smash,
+ * HitCar, Grounded, Creak, then the continuous ones, Wreck (sparks) and OffRoad (dust), asked for
+ * every tick: they come back when the other one ends. (Without this the tick's last request won:
+ * a collision's HitCar went under the Creak of its damage, a Smash under the sparks.) */
+static const uint8_t sfx_prio[7] = {0, 4, 1, 2, 6, 3, 5};   /* by effect + 1 (0: none) */
+void sfx_ask(uint8_t q)                               /* (scr_shim.cpp, Car_Behaviour.cpp) */
 {
-	uint16_t step, ph = 0, i, len;
-	uint8_t k;
-	if (hz < 107) hz = 107;
-	if (hz == snd_hz) return;
-	snd_hz = hz;
-	k = (uint8_t)(((uint32_t)hz * (SND_BUF - 44)) / LINE_HZ);
-	if (k == 0) k = 1;
-	len = (uint16_t)(((uint32_t)k * LINE_HZ + hz / 2) / hz);
-	if (len > SND_BUF - 44) len = SND_BUF - 44;
-	step = (uint16_t)(((uint32_t)k << 16) / len);
-	for (i = 0; i < SND_BUF; i++, ph += step)
-		mix_buf[i] = 128 + (int8_t)(((int16_t)(int8_t)((ph >> 8) - 128) * vol) >> 8);
-	mix_len = (uint8_t)len;
-	mix_end = mix_buf + len;
+	if (sfx_prio[q] >= sfx_prio[sfx_req]) sfx_req = q;
 }
-
-/* ---- sound effects (Grounded, OffRoad, Wreck, Smash, Creak, HitCar): a noise loop instead
- * of the engine tone for a few ticks; "grain" = samples each random value is held (low = hiss,
- * high = rumble). Own generator: the game's rand() sequence stays the physics' alone. */
-volatile uint8_t sfx_req;                            /* effect + 1, set by the physics (scr_shim.cpp) */
-static const uint8_t sfx_tab[6][2] = {{8, 1}, {6, 1}, {2, 6}, {1, 3}, {12, 1}, {3, 2}};   /* grain, ticks */
-static uint8_t sfx_left, sfx_grain, sfx_rng = 1;
-static void __attribute__((noinline)) sound_update(void)
+#ifdef SCR_SAMPLES
+/* the samples: SPI RAM from 0x5200 (tools/mksfx.py: sounds/<effect>.wav, a noise burst for an
+ * effect without one). pj_sfx streams the playing one from SPI RAM into the pairs pj_mix has just
+ * written - in the vsync callback if the SPI bus is free, otherwise (the main program in a
+ * transfer: at most ~32 bytes) left to spi_unlock(), a scanline or two later: those pairs play ~12
+ * lines after the callback at the earliest. An effect asked for again while it plays goes on (as
+ * the remake's DirectSound buffers do); another one replaces it. (Without them - the sdBase test
+ * builds - the effects are silent.) */
+extern uint8_t sfx_ok, smp_new, smp_cur;              /* (scr_io_avr.cpp: loaded; pjmix.S) */
+extern uint16_t smp_left;
+void pj_sfx(uint8_t *dst, uint8_t pairs);
+static uint8_t sfx_from, sfx_n;                       /* the pairs mixed by the last callback */
+static void __attribute__((noinline)) sfx_run(uint8_t f, uint8_t n)   /* (the bus held, n > 0) */
 {
-	uint8_t r = sfx_req;
-	if (r) { sfx_req = 0; sfx_grain = sfx_tab[r - 1][0]; sfx_left = sfx_tab[r - 1][1]; }
-	if (!sfx_left) { sound_tone(game_engine_hz(), 160); return; }
-	sfx_left--;
-	snd_hz = 0;                                      /* (the engine tone is rebuilt afterwards) */
-	uint8_t v = 128, g = 0;
-	for (uint8_t i = 0; i < SND_BUF; i++) {
-		if (!g--) {
-			g = sfx_grain - 1;
-			sfx_rng ^= sfx_rng << 3; sfx_rng ^= sfx_rng >> 5; sfx_rng ^= sfx_rng << 1;   /* xorshift */
-			v = 64 + (sfx_rng & 0x7F);
+	uint8_t k = PAIRS - f;
+	if (k > n) k = n;
+	pj_sfx(mix_buf + 2 * f, k);
+	if (n -= k) pj_sfx(mix_buf, n);
+}
+static void __attribute__((noinline)) sfx_late(void)
+{
+	cli();
+	uint8_t d = sfx_defer, f = sfx_from, n = sfx_n;
+	sfx_defer = 0;
+	spi_lock = d;
+	sei();
+	if (d) { sfx_run(f, n); spi_lock = 0; }
+}
+#else
+/* no samples (64 KB builds, SAMPLES=0): noise for a few frames (pj_noise; "grain" = samples each
+ * random value is held: low = hiss, high = rumble; its own generator: the game's rand() sequence
+ * stays the physics' alone) */
+static const uint8_t sfx_tab[6][2] = {{8, 7}, {6, 9}, {2, 42}, {1, 21}, {12, 7}, {3, 14}};   /* grain, frames (OffRoad, asked for every tick off the road: longer than a tick) */
+static uint8_t sfx_left, sfx_cur;
+extern uint8_t sfx_grain;                             /* (pjmix.S) */
+void pj_noise(uint8_t *dst, uint8_t pairs);
+#endif
+static void __attribute__((noinline)) sound_frame(void)
+{
+	int16_t t = snd_target;
+	uint8_t q = sfx_req, r, n;
+	if (t < 0) {                                       /* (volume 0: the mix is 128) */
+		sfx_req = 0; pj_v12 = 0; pj_v3 = 0;
+#ifdef SCR_SAMPLES
+		smp_left = 0; smp_new = 0;
+#else
+		sfx_left = 0;
+#endif
+	} else {
+#ifndef SCR_NO_ENGINE                                  /* (EXTRA=-DSCR_NO_ENGINE: the effects alone) */
+		pj_v12 = 100; pj_v3 = 50;
+#endif
+		if (q) {
+			sfx_req = 0;
+#ifdef SCR_SAMPLES
+			if (sfx_ok && (!smp_left || (q != smp_cur && sfx_prio[q] >= sfx_prio[smp_cur])))
+				smp_new = q;                           /* (pj_sfx starts it) */
+#else
+			if (!sfx_left || sfx_prio[q] >= sfx_prio[sfx_cur]) {
+				sfx_cur = q; sfx_grain = sfx_tab[q - 1][0]; sfx_left = sfx_tab[q - 1][1];
+			}
+#endif
 		}
-		mix_buf[i] = v;
+		snd_rpm += (t - snd_rpm) >> 2;                 /* (the target moves once per game tick) */
 	}
-	mix_len = SND_BUF;
-	mix_end = mix_buf + SND_BUF;
+	for (uint8_t c = 0; c < 3; c++) pj_step[c] = (uint16_t)(snd_rpm + pj_off[c]) << 1;   /* half rate */
+	cli(); r = (uint8_t)(((uint8_t *)mix_pos - mix_buf) >> 1); sei();   /* (kernel.h: mix_buf, mix_pos) */
+	n = r - snd_i - 1;                                 /* up to the pair before the one playing */
+	if (r <= snd_i) n += PAIRS;                        /* (mod PAIRS) */
+#ifdef SCR_SAMPLES
+	sfx_from = snd_i; sfx_n = n;
+#endif
+	while (n) {
+		uint8_t k = PAIRS - snd_i;
+		if (k > n) k = n;
+		n -= k;
+		pj_mix(mix_buf + 2 * snd_i, k);
+#ifndef SCR_SAMPLES
+		if (sfx_left) pj_noise(mix_buf + 2 * snd_i, k);
+#endif
+		snd_i += k;
+		if (snd_i == PAIRS) snd_i = 0;
+	}
+#ifdef SCR_SAMPLES
+	if (sfx_n) {                                       /* (pj_sfx: nothing if no effect plays) */
+		if (spi_lock || bg_active) sfx_defer = 1;      /* (the bus in use: spi_unlock does it) */
+		else { sfx_defer = 0; spi_lock = 1; sfx_run(sfx_from, sfx_n); spi_lock = 0; }
+	}
+#else
+	if (sfx_left) sfx_left--;
+#endif
 }
 
 /* the rasterizer holds 47 active edges per row: when a picture lost edges (rast_overflow
@@ -219,21 +297,10 @@ static void __attribute__((noinline)) draw_limit_adapt(void)
 	}
 }
 
-/* the menu and the result screen are silent: no engine, no effect (snd_hz 1: never a tone, sound_tone() clamps to 107) */
-static void __attribute__((noinline)) sound_silence(void)
-{
-	if (snd_hz == 1) return;
-	snd_hz = 1;
-	sfx_left = 0; sfx_req = 0;
-	for (uint8_t i = 0; i < SND_BUF; i++) mix_buf[i] = 128;
-	mix_len = SND_BUF;
-	mix_end = mix_buf + SND_BUF;
-}
-
 /* buttons pressed since the last game tick, latched once per frame (a loop iteration takes
  * several frames: quick taps would otherwise be missed) */
 static volatile uint8_t pad_latch;                    /* (START, LEFT, RIGHT are in the low byte) */
-static void pad_cb(void) { pad_latch |= (uint8_t)ReadJoypad(0); }
+static void vsync_cb(void) { pad_latch |= (uint8_t)ReadJoypad(0); sound_frame(); }
 
 /* ---- HUD: a few rectangles in front of the scene (two edges each) */
 enum { STATE_MENU, STATE_RACE, STATE_OVER };
@@ -335,7 +402,6 @@ int main(void)
 	DDRB |= (1 << PB7) | (1 << PB5) | (1 << PB4);
 	SPCR = (1 << SPE) | (1 << MSTR); SPSR = (1 << SPI2X);
 	STAGE(1);
-	sound_tone(100, 0);
 	STAGE(2);
 	PHASE(3);
 #ifdef LOAD_CLI
@@ -362,7 +428,7 @@ int main(void)
 #ifndef AUTOPILOT
 	game_start(track);   /* menu view: the start line */
 #endif
-	SetUserPostVsyncCallback(pad_cb);
+	SetUserPostVsyncCallback(vsync_cb);
 	ring_w = 0;
 	game_render(EDGE_STREAM);
 	rasterize_picture(0);
@@ -405,7 +471,10 @@ int main(void)
 		}
 		STAGE(6);
 		COUNT(ticks_done);
-		if (state != STATE_RACE || scr_mute || paused) sound_silence(); else sound_update();   /* menu, result, muted, paused: silent */
+		{	/* menu, result, muted, paused: silent. Engine revs ~176 (idle) .. ~4800 (wheels in the air) */
+			int16_t t = (state != STATE_RACE || scr_mute || paused) ? -1 : game_engine_revs() >> 2;
+			cli(); snd_target = t; sei();
+		}
 		while (front != pending) ;                     /* the copy task took the last picture */
 		PHASE(2);
 		game_render(EDGE_STREAM);

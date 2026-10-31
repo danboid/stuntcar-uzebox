@@ -18,7 +18,9 @@ OPT="-Os -ffunction-sections -fdata-sections -mcall-prologues -flto -fno-gcse -f
 # avr-gcc 15+: its fuse-move pass crashes on this code (as the game's Makefile)
 [ "$(avr-gcc -dumpversion | cut -d. -f1)" -ge 15 ] 2>/dev/null && OPT="$OPT -mno-fuse-move"
 AVR="avr-g++ -mmcu=atmega644 $OPT -std=gnu++11 -fno-exceptions -fno-rtti -fno-threadsafe-statics -Dlinux -DLINUX -DTRACK=$TRACK -DTICKS=$TICKS -DLOG_HASH -DSCR_SDBASE -DSCR_ROWS_ASM -DSCR_TRIG_ASM -I. -w"   # (rows, coefficients in assembly, as the game)
-for f in Car_Behaviour Opponent_Behaviour scr_io_avr harness avr_main; do $AVR -c $f.cpp -o $W/avr_$f.o; done
+PHYS=$(make -s -C "$ROOT/game" print-PHYS_OPT)     # (the race logic's size flags, as the game)
+for f in Car_Behaviour Opponent_Behaviour harness; do $AVR $PHYS -c $f.cpp -o $W/avr_$f.o; done
+for f in scr_io_avr avr_main; do $AVR -c $f.cpp -o $W/avr_$f.o; done
 for f in scr_track scr_math 3D_Engine; do $AVR -mno-call-prologues -c $f.cpp -o $W/avr_$f.o; done
 avr-gcc -mmcu=atmega644 -x assembler-with-cpp -I"$KERNEL_DIR" -c sdBase_scr.S -o $W/avr_sdBase.o
 avr-gcc -mmcu=atmega644 -x assembler-with-cpp -c scr_rows.S -o $W/avr_rows.o
