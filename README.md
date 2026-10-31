@@ -330,7 +330,7 @@ includes `SCR_DATA_SUM`, the 16-bit sum of the data's bytes, by which the game c
 * Flash: 122 bytes free with avr-gcc 16.2.0, 142 with 14.2.0 (the 128 KB build with samples),
   below the 61,298-byte limit.
 
-## Credits and licensing
+## Credits
 
 * *Stunt Car Racer*: Geoff Crammond / MicroStyle (1989). The track files in
   `data/source/Tracks` and the data derived from them are from the original game.
@@ -338,4 +338,6 @@ includes `SCR_DATA_SUM`, the 16-bit sum of the data's bytes, by which the game c
   `Track` data handling) is derived from the *Stunt Car Racer Remake* source as published at
   https://github.com/ptitSeb/stuntcarremake (commit 9f0f8e6), as are the reference files in
   `tests/reference/src`.
-* The Uzebox kernel and the original code in this game are licensed under the GNU GPL v3.0.
+* Thanks to Alec Bourque (Uze) for contributing the pjmix sound engine, adding the sampled fx
+  and improving video mode 19's performance.
+* The original code in this game such as Model S and video mode 19 is licensed under the GNU GPL v3.0.
