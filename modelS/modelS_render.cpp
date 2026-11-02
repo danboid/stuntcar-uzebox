@@ -495,6 +495,37 @@ NOINL static void draw_piece(long p, uint8_t step, uint8_t walls)
 	draw_rows(p, f, nf, ROAD);  draw_rows(p, q, nq, ROAD);
 }
 
+/* Back-face culling of a piece's walls. A piece's road and its two walls are the top and sides
+ * of a solid block: seen from outside it, a wall facing away from the camera is always behind
+ * the piece's own road or its other wall - never visible. A wall is left out (no region, no
+ * edges) when every one of its segments faces away on screen: the sign of the cross product of
+ * each segment quad's diagonals (as the car's faces). Pieces curve, so a wall facing the camera
+ * anywhere is kept whole; and one with a corner clipped or off screen (its screen coordinates
+ * not exact) too. SCR_WALL_CULL: the sign of a back-facing left wall's product (the right
+ * wall's is the opposite); 0: no culling. */
+#ifndef SCR_WALL_CULL
+#define SCR_WALL_CULL 1                  /* 0: no culling */
+#endif
+#if SCR_WALL_CULL
+#ifdef __AVR__
+/* in assembly (modelS_cull.S), bit-identical to the C below */
+extern "C" uint8_t scr_wall_back(const scr_vtx *p, const scr_vtx *q, uint8_t nr);
+#define wall_back(t, b, nr) scr_wall_back(&V[0][t], &V[0][b], nr)
+#else
+/* corners V[][t], V[][b] (the left wall 0, 2; the right one 3, 1: swapped, its product negated):
+ * facing away where the product is positive */
+NOINL static uint8_t wall_back(uint8_t t, uint8_t b, uint8_t nr)
+{
+	for (uint8_t k = 0; k + 1 < nr; k++) {
+		const scr_vtx *p0 = &V[k][t], *p1 = &V[k + 1][t], *q0 = &V[k][b], *q1 = &V[k + 1][b];
+		if (p0->fl | p1->fl | q0->fl | q1->fl) return 0;
+		int32_t c = (int32_t)(q1->sx - p0->sx) * (q0->sy - p1->sy) - (int32_t)(q1->sy - p0->sy) * (q0->sx - p1->sx);
+		if (c <= 0) return 0;                            /* facing the camera, or edge on */
+	}
+	return 1;
+}
+#endif
+#endif
 NOINL static void draw_rows(long p, const uint8_t *rows, uint8_t nr, uint8_t what)
 {
 	const ScrPiece &tp = Track[p];
@@ -535,8 +566,17 @@ NOINL static void draw_rows(long p, const uint8_t *rows, uint8_t nr, uint8_t wha
 #ifdef DBG_REGIONS
 	dbg_cur_piece = p; dbg_cur_kind = 'S';
 #endif
-	uint8_t idL = SCR_NONE, idR = SCR_NONE;
-	if (what & SIDES) { idL = new_region(pal(tp.sidesColour)); idR = new_region(pal(tp.sidesColour)); }
+	uint8_t idL = SCR_NONE, idR = SCR_NONE;               /* (SCR_NONE: no wall, or facing away) */
+	if (what & SIDES) {
+#if SCR_WALL_CULL
+		if (!wall_back(0, 2, nr))
+#endif
+			idL = new_region(pal(tp.sidesColour));
+#if SCR_WALL_CULL
+		if (!wall_back(3, 1, nr))
+#endif
+			idR = new_region(pal(tp.sidesColour));
+	}
 #ifdef DBG_REGIONS
 	dbg_cur_kind = 'R';
 #endif
@@ -572,9 +612,11 @@ NOINL static void draw_rows(long p, const uint8_t *rows, uint8_t nr, uint8_t wha
 	const scr_vtx *poly[2 * MAXROWS];
 	uint8_t n;
 	uint8_t sL = 0, sR = 0;
-	if (what & SIDES) {
+	if (idL != SCR_NONE) {
 		n = 0; for (k = 0; k < nr; k++) poly[n++] = &V[k][0]; for (k = nr; k-- > 0; ) poly[n++] = &V[k][2];
 		sL = simple(poly, n); if (!sL) emit_clipped(poly, n, idL);
+	}
+	if (idR != SCR_NONE) {
 		n = 0; for (k = 0; k < nr; k++) poly[n++] = &V[k][1]; for (k = nr; k-- > 0; ) poly[n++] = &V[k][3];
 		sR = simple(poly, n); if (!sR) emit_clipped(poly, n, idR);
 	}

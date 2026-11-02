@@ -20,7 +20,7 @@ SCR is made possible on the Uzebox by two new components introduced by this game
 
 Requires a Uzebox with at least **64 KB SPI RAM** and the **Uzebox bootloader 5.0.06 or later**.
 
-## Differences Between the two SCR .uze files
+### 128 KB or 64 KB SPI RAM?
 
 The two chips are addressed differently: the 128 KB 23LC1024 takes a 24-bit address after each
 command, the 64 KB 23LC512 a 16-bit one. A build sends one or the other on every transfer, and
@@ -141,8 +141,8 @@ the initialized data is copied from the end of the image at start-up, and on an 
 builds whose image ended later lost some of it - at 0xEFDA the picture rolled at once (the
 pictures' SPI RAM addresses), at 0xEFA2 the game froze after a few seconds (the sound effects'
 table, it seems) - while one ending at 0xEF72 has run well. The cause is not in the published
-bootloader source. This version, with avr-gcc 14.2.0 (binutils 2.47, avr-libc 2.2.1): 61,116 bytes
-(60,890 for the 64 KB build). Other avr-libc or binutils versions can give slightly different
+bootloader source. This version, with avr-gcc 14.2.0 (binutils 2.47, avr-libc 2.2.1): 61,284 bytes
+(61,060 for the 64 KB build). Other avr-libc or binutils versions can give slightly different
 sizes - an earlier version measured 170 bytes more elsewhere than here; if a build goes over the
 limit, the Makefile stops with a message. 16.2.0: 61,328 bytes, over the limit; 5.x does not fit.
 
@@ -178,7 +178,7 @@ still). The logic tests build it the same way (`make -s print-PHYS_OPT`).
 |---|---|
 | `game/` | the main program (C), the C++ glue, fixed-address buffers, the video copy task (`scr_copy.S`), the engine sound mixer (`pjmix.S`), Makefile, `gameinfo.properties` |
 | `videoMode19/` | Uzebox video mode 19 (`videoMode19.s`, `.h`, `.def.h`), in the kernel's layout |
-| `modelS/` | Model S: `modelS_render.cpp/.h` (polygon renderer), `modelS_rast.S` (rasterizer), and in assembly `modelS_emit.S` (edge setup), `modelS_clip.S` (clipping), `modelS_emitclip.S` (clipped polygons to edges), `modelS_transform.S` (vertex transform), `modelS_loadrows.S` (track rows to the screen), `modelS_car.S` (the opponent's car) |
+| `modelS/` | Model S: `modelS_render.cpp/.h` (polygon renderer), `modelS_rast.S` (rasterizer), and in assembly `modelS_emit.S` (edge setup), `modelS_clip.S` (clipping), `modelS_cull.S` (back-facing walls), `modelS_emitclip.S` (clipped polygons to edges), `modelS_transform.S` (vertex transform), `modelS_loadrows.S` (track rows to the screen), `modelS_car.S` (the opponent's car) |
 | `port/` | the remake's race logic (ported to integer arithmetic), track module, I/O, assembly helpers |
 | `data/` | `SCRTRK.BIN` (the track data, stored in the `.uze`), its generator and sources |
 | `sounds/` | the sound effect samples' `.wav` files (128 KB builds; `README.md`) |
@@ -232,6 +232,17 @@ the finish line). The pieces with such a wall are recognized by their height pro
 (scr_track.cpp, wall_ids); away from them - sliding back down a steep climb, reversing for a
 run-up - only the original's rules apply, and falling off the road gets the original's crane, on
 the same piece (or the one after a pit).
+
+Back-face culling: a track piece's road and its two walls are the top and sides of a solid
+block, so seen from outside it a wall facing away from the camera is always hidden behind the
+piece's own road or its other wall. Such walls are left out before anything reaches SPI RAM (no
+region, no edges): a wall is culled when every one of its segments faces away on screen (the sign
+of the cross product of each segment quad's diagonals; pieces curve, so a wall facing the camera
+anywhere is kept whole, as is one with a corner clipped or off screen). The pictures are the
+same; over a view from every piece of all eight tracks it removes ~40% of the edges (the busiest
+view: 392 -> 244 edges, 128 -> 88 regions - no view comes near the limits any more) and makes
+the game 2-12% faster (Roller Coaster the most). In `modelS_cull.S`; `EXTRA=-DSCR_WALL_CULL=0`
+turns it off. (The opponent's car has its own culling.)
 
 Piece limits: at most 48 visible pieces are drawn - the nearest (the culling pass meets pieces in
 track order, and used to drop the newest: on a track's second half, Roller Coaster's banked right
@@ -328,10 +339,10 @@ includes `SCR_DATA_SUM`, the 16-bit sum of the data's bytes, by which the game c
 
 ## Known limitations
 
-* Between about 6.4 and 8 display frames per game tick on most tracks; the game is capped at 6,
-  the Amiga version’s rate. Views of much of a track at once are slower: Roller Coaster’s start
-  runs at about 10.
-* Flash: 182 bytes free with avr-gcc 14.2.0 (the 128 KB build with samples; 408 in the 64 KB
+* Between about 6.25 and 7.5 display frames per game tick while racing; the game is capped at 6,
+  the Amiga version's rate. Views of much of a track at once are slower: Roller Coaster's start
+  runs at about 8.8.
+* Flash: 14 bytes free with avr-gcc 14.2.0 (the 128 KB build with samples; 238 in the 64 KB
   build), below the 61,298-byte limit.
 
 ## Credits
@@ -344,4 +355,5 @@ includes `SCR_DATA_SUM`, the 16-bit sum of the data's bytes, by which the game c
   `tests/reference/src`.
 * Thanks to Alec Bourque (Uze) for contributing the pjmix sound engine, adding the sampled fx
   and improving video mode 19's performance.
+* Thanks to CunningFellow for suggesting we add back-face culling.
 * The original code in this game such as Model S and video mode 19 is licensed under the GNU GPL v3.0.

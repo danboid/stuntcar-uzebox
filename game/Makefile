@@ -88,7 +88,7 @@ KOBJS := uzeboxVideoEngineCore.o uzeboxCore.o uzeboxVideoEngine.o $(KSOUND)
 GXX   := Car_Behaviour Opponent_Behaviour 3D_Engine scr_track scr_math scr_io_avr harness scr_palette
 # SDBASE=sdBase.o (with EXTRA=-DSCR_SDBASE in the C++ flags) adds the no-bootloader fallback
 SDBASE ?=
-GOBJS := scr_game.o scr_shim.o pjmix.o $(addsuffix .o,$(GXX)) modelS_render.o modelS_rast.o $(SDBASE) fastmath.o scr_bufs.o scr_xram.o scr_copy.o scr_cam3.o modelS_clip.o scr_rows.o scr_trig.o $(if $(filter 1,$(FAST)),modelS_emit.o modelS_emitclip.o) $(if $(filter 1,$(TRASM)),modelS_transform.o modelS_car.o modelS_loadrows.o)
+GOBJS := scr_game.o scr_shim.o pjmix.o $(addsuffix .o,$(GXX)) modelS_render.o modelS_rast.o $(SDBASE) fastmath.o scr_bufs.o scr_xram.o scr_copy.o scr_cam3.o modelS_clip.o modelS_cull.o scr_rows.o scr_trig.o $(if $(filter 1,$(FAST)),modelS_emit.o modelS_emitclip.o) $(if $(filter 1,$(TRASM)),modelS_transform.o modelS_car.o modelS_loadrows.o)
 
 scr.hex: scr.elf
 	avr-objcopy -O ihex -R .eeprom $< $@
@@ -138,6 +138,8 @@ scr_trig.o: $(SRC)/scr_trig.S
 scr_rows.o: $(SRC)/scr_rows.S
 	avr-gcc $(DBG) -mmcu=$(MCU) $(SPIRDEF) -x assembler-with-cpp -c $< -o $@
 modelS_clip.o: $(MODELS)/modelS_clip.S
+	avr-gcc $(DBG) -mmcu=$(MCU) $(SPIRDEF) -x assembler-with-cpp -c $< -o $@
+modelS_cull.o: $(MODELS)/modelS_cull.S
 	avr-gcc $(DBG) -mmcu=$(MCU) $(SPIRDEF) -x assembler-with-cpp -c $< -o $@
 modelS_emitclip.o: $(MODELS)/modelS_emitclip.S
 	avr-gcc $(DBG) -mmcu=$(MCU) $(SPIRDEF) -x assembler-with-cpp -c $< -o $@
