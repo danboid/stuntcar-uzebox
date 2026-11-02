@@ -326,7 +326,9 @@ cuzebox-ex commit bd55361 (26 October 2026); if a later version changes the code
 
 ## Regenerating the track data
 
-`data/SCRTRK.BIN` and `port/scr_trackdata.h` come from `data/gen_trackdata.py`:
+`data/SCRTRK.BIN` and `port/scr_trackdata.h` come from `data/gen_trackdata.py` (the track data's
+formats - the Amiga track files, the remake's dump, `SCRTRK.BIN` - are described in
+`data/README.md`):
 
 ```sh
 cd data && python3 gen_trackdata.py source/orig_tracks.json source/Tracks
@@ -355,5 +357,4 @@ includes `SCR_DATA_SUM`, the 16-bit sum of the data's bytes, by which the game c
   `tests/reference/src`.
 * Thanks to Alec Bourque (Uze) for contributing the pjmix sound engine, adding the sampled fx
   and improving video mode 19's performance.
-* Thanks to CunningFellow for suggesting we add back-face culling.
 * The original code in this game such as Model S and video mode 19 is licensed under the GNU GPL v3.0.
