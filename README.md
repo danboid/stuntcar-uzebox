@@ -20,7 +20,7 @@ SCR is made possible on the Uzebox by two new components introduced by this game
 
 Requires a Uzebox with at least **64 KB SPI RAM** and the **Uzebox bootloader 5.0.06 or later**.
 
-### 128 KB or 64 KB SPI RAM?
+## Differences Between the two SCR .uze files
 
 The two chips are addressed differently: the 128 KB 23LC1024 takes a 24-bit address after each
 command, the 64 KB 23LC512 a 16-bit one. A build sends one or the other on every transfer, and
@@ -58,8 +58,9 @@ its own directory or into a dir shared with less files and it should run fine.
 ## Game interface
 
 When you start the game you are presented with the track selection screen.
-Pushing left or right chooses the track, their number is indicated by the row of brown squares
-displayed on the track selection screen. One brown square = track #1 etc.
+Pushing left or right chooses the track (with a "plink"), their number is indicated by the row of
+brown squares displayed on the track selection screen. One brown square = track #1 etc.; the last
+one, the selected track, pulses.
 
 * In game HUD: red bar = damage, yellow bar = boost, violet squares = laps begun.
 
@@ -75,8 +76,8 @@ displayed on the track selection screen. One brown square = track #1 etc.
 
 ## Building
 
-Building SCR requires avr-gcc 7.3 or later; 16.2 is recommended (the fastest, ~0.7% faster than
-14.2: both fit).
+Building SCR requires avr-gcc 7.3 to 14.x; 14.2 is recommended (the release builds use it). With
+16.2 the 128 KB build no longer fits (30 bytes over); the game runs as fast with either.
 
 ```sh
 # 1. Prepare the Uzebox kernel with the patch (registers video mode 19; sound buffer size)
@@ -140,8 +141,10 @@ the initialized data is copied from the end of the image at start-up, and on an 
 builds whose image ended later lost some of it - at 0xEFDA the picture rolled at once (the
 pictures' SPI RAM addresses), at 0xEFA2 the game froze after a few seconds (the sound effects'
 table, it seems) - while one ending at 0xEF72 has run well. The cause is not in the published
-bootloader source. This version: 61,176 bytes with avr-gcc 16.2.0 (60,944 for the 64 KB build),
-61,156 with 14.2.0 (60,922); 5.x no longer fits.
+bootloader source. This version, with avr-gcc 14.2.0 (binutils 2.47, avr-libc 2.2.1): 61,116 bytes
+(60,890 for the 64 KB build). Other avr-libc or binutils versions can give slightly different
+sizes - an earlier version measured 170 bytes more elsewhere than here; if a build goes over the
+limit, the Makefile stops with a message. 16.2.0: 61,328 bytes, over the limit; 5.x does not fit.
 
 The game is compiled with `-fno-gcse -fno-move-loop-invariants`, which make the AVR code ~1.2 KB
 smaller at the same speed. With avr-gcc 15 or later the Makefile also adds `-mno-fuse-move`
@@ -325,10 +328,11 @@ includes `SCR_DATA_SUM`, the 16-bit sum of the data's bytes, by which the game c
 
 ## Known limitations
 
-* About 7 display frames per game tick while racing (the Amiga version ran at 6). Views of much
-  of a track at once - Roller Coaster in particular - are the slowest.
-* Flash: 122 bytes free with avr-gcc 16.2.0, 142 with 14.2.0 (the 128 KB build with samples),
-  below the 61,298-byte limit.
+* Between about 6.4 and 8 display frames per game tick on most tracks; the game is capped at 6,
+  the Amiga version’s rate. Views of much of a track at once are slower: Roller Coaster’s start
+  runs at about 10.
+* Flash: 182 bytes free with avr-gcc 14.2.0 (the 128 KB build with samples; 408 in the 64 KB
+  build), below the 61,298-byte limit.
 
 ## Credits
 

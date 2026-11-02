@@ -163,6 +163,7 @@ static int16_t snd_rpm;
 #define PAIRS (MIX_BUF_SIZE / 2)
 static uint8_t snd_i;                                 /* next pair of samples to mix */
 volatile uint8_t sfx_req;                            /* effect + 1, from the physics (sfx_ask) */
+uint8_t sfx_from, sfx_n;                              /* the pairs mixed by the last callback */
 /* one effect plays at a time (the remake had a sound buffer each), so they have priorities: a
  * tick's requests keep the highest, and a playing effect gives way only to one as high - Smash,
  * HitCar, Grounded, Creak, then the continuous ones, Wreck (sparks) and OffRoad (dust), asked for
@@ -184,7 +185,6 @@ void sfx_ask(uint8_t q)                               /* (scr_shim.cpp, Car_Beha
 extern uint8_t sfx_ok, smp_new, smp_cur;              /* (scr_io_avr.cpp: loaded; pjmix.S) */
 extern uint16_t smp_left;
 void pj_sfx(uint8_t *dst, uint8_t pairs);
-static uint8_t sfx_from, sfx_n;                       /* the pairs mixed by the last callback */
 static void __attribute__((noinline)) sfx_run(uint8_t f, uint8_t n)   /* (the bus held, n > 0) */
 {
 	uint8_t k = PAIRS - f;
@@ -210,6 +210,9 @@ static uint8_t sfx_left, sfx_cur;
 extern uint8_t sfx_grain;                             /* (pjmix.S) */
 void pj_noise(uint8_t *dst, uint8_t pairs);
 #endif
+/* the track select "plink": a short square wave (~1.5 kHz at 7867 Hz), written over the pairs
+ * pj_mix has just written (silence, in the menu), its volume falling each frame */
+volatile uint8_t plink_left;
 static void __attribute__((noinline)) sound_frame(void)
 {
 	int16_t t = snd_target;
@@ -242,9 +245,7 @@ static void __attribute__((noinline)) sound_frame(void)
 	cli(); r = (uint8_t)(((uint8_t *)mix_pos - mix_buf) >> 1); sei();   /* (kernel.h: mix_buf, mix_pos) */
 	n = r - snd_i - 1;                                 /* up to the pair before the one playing */
 	if (r <= snd_i) n += PAIRS;                        /* (mod PAIRS) */
-#ifdef SCR_SAMPLES
 	sfx_from = snd_i; sfx_n = n;
-#endif
 	while (n) {
 		uint8_t k = PAIRS - snd_i;
 		if (k > n) k = n;
@@ -265,6 +266,7 @@ static void __attribute__((noinline)) sound_frame(void)
 	if (sfx_left) sfx_left--;
 #endif
 }
+void plink_frame(void);                               /* (pjmix.S: over the pairs sound_frame has just mixed) */
 
 /* the rasterizer holds 47 active edges per row: when a picture lost edges (rast_overflow
  * counts them; a region left open shows as a bar to the right edge), the next ones draw 6
@@ -300,7 +302,7 @@ static void __attribute__((noinline)) draw_limit_adapt(void)
 /* buttons pressed since the last game tick, latched once per frame (a loop iteration takes
  * several frames: quick taps would otherwise be missed) */
 static volatile uint8_t pad_latch;                    /* (START, LEFT, RIGHT are in the low byte) */
-static void vsync_cb(void) { pad_latch |= (uint8_t)ReadJoypad(0); sound_frame(); }
+static void vsync_cb(void) { pad_latch |= (uint8_t)ReadJoypad(0); sound_frame(); if (plink_left) plink_frame(); }
 
 /* ---- HUD: a few rectangles in front of the scene (two edges each) */
 enum { STATE_MENU, STATE_RACE, STATE_OVER };
@@ -323,7 +325,10 @@ static void __attribute__((noinline)) build_hud(uint8_t state, uint8_t track)
 	long v;
 	scr_hud_n = 0;
 	if (state == STATE_MENU) {                             /* track number: 1..8 squares */
-		for (i = 0; i <= track; i++) hud_rect(96 + i * 8, 101 + i * 8, 4, 7, C_BROWN);
+		for (i = 0; i <= track; i++) {                     /* the selected one, last, pulses: */
+			uint8_t d = (i == track) && (render_frames & 4);   /* 1 px bigger every 4 pictures */
+			hud_rect(96 + i * 8 - d, 101 + i * 8 + d, 4 - d, 7 + d, C_BROWN);
+		}
 		return;
 	}
 	v = new_damage >> 1; if (v > 120) v = 120;             /* damage: red bar, top left */
@@ -452,6 +457,7 @@ int main(void)
 			if (state == STATE_MENU) {                     /* choose a track, start */
 				if (press & (BTN_RIGHT | BTN_LEFT)) {
 					track = (track + ((press & BTN_RIGHT) ? 1 : 7)) & 7;
+					if (!scr_mute) plink_left = 10;              /* "plink" */
 					game_start(track);
 				}
 				if (press & BTN_START) { state = STATE_RACE; paused = 0; }

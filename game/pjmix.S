@@ -273,3 +273,49 @@ spix:	out	_SFR_IO_ADDR(SPDR), r23   ; send r23, receive into r23 (polled, ~20 cy
 	in	r23, _SFR_IO_ADDR(SPDR)
 	ret
 #endif
+
+/* void plink_frame(void): the track select "plink" (scr_game.c) - a square wave over the pairs
+ * sound_frame has just mixed (sfx_from, sfx_n: silence, in the menu), ~1.5 kHz at 7867 Hz (phase
+ * step 48), at plink_left * 4 of 128 (40 .. 4: falling each frame); then plink_left - 1. Called
+ * from the vsync callback with plink_left > 0. */
+	.section .bss
+plink_ph:	.skip	1
+	.section .text.plink_frame,"ax",@progbits
+	.global	plink_frame
+plink_frame:
+	lds	r25, plink_left
+	lsl	r25
+	lsl	r25                     ; a
+	ldi	r18, 128
+	mov	r19, r18
+	add	r18, r25                ; 128 + a, 128 - a
+	sub	r19, r25
+	lds	r26, sfx_from           ; X = mix_buf + 2 * sfx_from
+	clr	r27
+	lsl	r26
+	rol	r27
+	subi	r26, lo8(-(mix_buf))
+	sbci	r27, hi8(-(mix_buf))
+	lds	r22, sfx_n
+	lds	r23, plink_ph
+	tst	r22
+	breq	3f
+1:	subi	r23, -48
+	mov	r24, r19
+	sbrc	r23, 7
+	mov	r24, r18
+	st	X+, r24                 ; (each pair: the same sample twice)
+	st	X+, r24
+	cpi	r26, lo8(mix_buf + 2 * MIX_BANK_SIZE)   ; the ring's end: back to its start
+	ldi	r20, hi8(mix_buf + 2 * MIX_BANK_SIZE)
+	cpc	r27, r20
+	brne	2f
+	ldi	r26, lo8(mix_buf)
+	ldi	r27, hi8(mix_buf)
+2:	dec	r22
+	brne	1b
+3:	sts	plink_ph, r23
+	lds	r25, plink_left
+	dec	r25
+	sts	plink_left, r25
+	ret

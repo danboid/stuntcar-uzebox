@@ -152,7 +152,7 @@ scr_cam3.o: $(SRC)/scr_cam3.S
 scr_xram.o: $(SRC)/scr_xram.S
 	avr-gcc $(DBG) -mmcu=$(MCU) $(SPIRDEF) -x assembler-with-cpp -c $< -o $@
 pjmix.o: pjmix.S
-	avr-gcc $(DBG) -mmcu=$(MCU) $(SFXDEF) -x assembler-with-cpp -c $< -o $@
+	avr-gcc $(DBG) -mmcu=$(MCU) $(SFXDEF) $(KOPTS) -x assembler-with-cpp -c $< -o $@
 scr_bufs.o: scr_bufs.S
 	avr-gcc $(DBG) -mmcu=$(MCU) $(SPIRDEF) -x assembler-with-cpp -c $< -o $@
 sdBase.o: $(SRC)/sdBase_scr.S
